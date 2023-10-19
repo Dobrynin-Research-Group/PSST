@@ -20,3 +20,9 @@ The `examples` directory contains scripts to optimize and train networks, and on
 The `docs` directory contains documentation written using Sphinx.
 
 The `img` directory will contain images of plots/figures used in this README and in the `derivations.md` file.
+
+## Future Plans
+
+The plan for this library is for a user to train a neural network using procedurally generated data from `SampleGenerator`. They are free to train an independently developed model, modify any parameters such as the "resolution" of the data (the generated viscosity data is represented as a 2D image), and use the resulting models to evaluate real, experimental specific viscosity data. 
+
+However, we recognize that not every researcher has the time or patience to learn about machine learning algorithms and our complicated analysis methods. Therefore, we plan to publish a web app that will allow researchers to upload their specific viscosity data in a .csv format, enter pertinent information about the units of measure and the monomer used, and receive results in the form of plotted data and .csv formatted files that give reasonable estimates of Kuhn length in solution, thermal blob size, degree of polymerization between entanglements as a function of concentration, and several more key solution properties. An announcement will be made on this GitHub page as well as the Dobrynin Group [website](https://dobryninlab.unc.edu).
