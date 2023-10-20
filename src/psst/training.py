@@ -21,6 +21,7 @@ class Checkpoint(NamedTuple):
         optimizer_state (dict): The state of the training optimizer as given by
           ``torch.optim.Optimizer.state_dict()``.
     """
+
     epoch: int
     model_state: dict
     optimizer_state: dict

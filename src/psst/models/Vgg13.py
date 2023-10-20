@@ -3,8 +3,8 @@ from torch.nn import *
 
 
 class Vgg13(Module):
-    """Visualization Geometry Group neural network for training on 2D images.
-    """
+    """Visualization Geometry Group neural network for training on 2D images."""
+
     def __init__(self):
         super().__init__()
 
