@@ -80,6 +80,7 @@ class Range(NamedTuple):
           geometrically, such that the respecitve quotients of any two pairs of
           adjacent elements are equal.
     """
+
     min: float
     max: float
     num: int = 0
@@ -110,7 +111,7 @@ class RunConfig(NamedTuple):
 
     def keys(self):
         return self._fields
-    
+
     def __getitem__(self, key: str):
         return getattr(self, key)
 
@@ -120,6 +121,7 @@ class AdamConfig(NamedTuple):
     `Adam optimizer <https://pytorch.org/docs/stable/generated/torch.optim.Adam.html>`_
     documentation for details.
     """
+
     lr: float = 0.001
     betas: tuple[float, float] = (0.9, 0.999)
     eps: float = 1e-8
@@ -133,7 +135,7 @@ class AdamConfig(NamedTuple):
 
     def keys(self):
         return self._fields
-    
+
     def __getitem__(self, key: str):
         return getattr(self, key)
 
@@ -160,6 +162,7 @@ class GeneratorConfig(NamedTuple):
         pe_range (Range): The range of values for the entanglement
           packing number. This is only used for normalization, so `num=0` is fine.
     """
+
     parameter: Parameter
 
     batch_size: int
@@ -174,7 +177,7 @@ class GeneratorConfig(NamedTuple):
 
     def keys(self):
         return self._fields
-    
+
     def __getitem__(self, key: str):
         return getattr(self, key)
 
@@ -197,7 +200,7 @@ def getGeneratorConfig(config_dict: dict[str]) -> GeneratorConfig:
     parameter = config_dict["parameter"]
     if parameter not in ("Bg", "Bth"):
         raise ValueError("GeneratorConfig.parameter must be either 'Bg' or 'Bth'.")
-    
+
     batch_size = int(config_dict["batch_size"])
 
     phi_range = Range(**(config_dict.pop("phi_range")))
