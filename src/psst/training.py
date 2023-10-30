@@ -57,7 +57,7 @@ def train(
         log.debug("Computing loss")
         loss: torch.Tensor = loss_fn(pred, batch_values[choice])
         loss.backward()
-        avg_loss += loss
+        avg_loss += loss.item()
         optimizer.step()
 
     return avg_loss / num_batches
