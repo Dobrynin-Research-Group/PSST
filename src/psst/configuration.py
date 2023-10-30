@@ -17,7 +17,7 @@ import attrs.validators as valid
 import attrs.converters as conv
 from ruamel.yaml import YAML
 
-from psst import Range
+from psst import Range, convert_to_range
 
 __all__ = [
     "Parameter",
@@ -169,23 +169,23 @@ class GeneratorConfig(GenericConfig):
     batch_size: int = attrs.field(converter=int, validator=valid.gt(0))
 
     phi_range: Range = attrs.field(
-        converter=Range.from_dict, validator=valid.instance_of(Range)
+        converter=convert_to_range, validator=valid.instance_of(Range)
     )
     nw_range: Range = attrs.field(
-        converter=Range.from_dict, validator=valid.instance_of(Range)
+        converter=convert_to_range, validator=valid.instance_of(Range)
     )
     visc_range: Range = attrs.field(
-        converter=Range.from_dict, validator=valid.instance_of(Range)
+        converter=convert_to_range, validator=valid.instance_of(Range)
     )
 
     bg_range: Range = attrs.field(
-        converter=Range.from_dict, validator=valid.instance_of(Range)
+        converter=convert_to_range, validator=valid.instance_of(Range)
     )
     bth_range: Range = attrs.field(
-        converter=Range.from_dict, validator=valid.instance_of(Range)
+        converter=convert_to_range, validator=valid.instance_of(Range)
     )
     pe_range: Range = attrs.field(
-        converter=Range.from_dict, validator=valid.instance_of(Range)
+        converter=convert_to_range, validator=valid.instance_of(Range)
     )
 
 

@@ -6,7 +6,7 @@ from attrs import asdict
 from torch import save as tsave
 from torch import load as tload
 
-from psst import Range
+from psst import Range, convert_to_range
 
 
 class ModelType(str, Enum):
@@ -64,9 +64,9 @@ class FinalState(NamedTuple):
             obj["model_state"],
             obj["bg_model_state"],
             obj["bth_model_state"],
-            Range.from_dict(obj["phi_range"]),
-            Range.from_dict(obj["nw_range"]),
-            Range.from_dict(obj["visc_range"]),
-            Range.from_dict(obj["bg_range"]),
-            Range.from_dict(obj["bth_range"]),
+            convert_to_range(obj["phi_range"]),
+            convert_to_range(obj["nw_range"]),
+            convert_to_range(obj["visc_range"]),
+            convert_to_range(obj["bg_range"]),
+            convert_to_range(obj["bth_range"]),
         )
