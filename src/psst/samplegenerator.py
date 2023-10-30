@@ -352,15 +352,39 @@ class SampleGenerator:
         self._index += 1
         self._log.debug("Generating batch %6d/%d", self._index, self._num_batches)
 
-        if self.visc.ndim == 4:
-            self.visc.squeeze_()
-
-        self.bg.uniform_(self.bg_range.min, self.bg_range.max)
-        self.bth.uniform_(self.bth_range.min, self.bth_range.max)
-        self.pe.uniform_(self.pe_range.min, self.pe_range.max)
-
+        self._bg.generate()
+        self._bth.generate()
+        self._pe.generate()
         self._log.debug("Sampled values for Bg, Bth, Pe")
 
+        self._compute_visc(self._bg, self._bth, self._pe, self._visc)
+
+        self._trim(self._visc)
+        self._add_noise(self._visc)
+        self._visc.div_(self._denominator)
+        self._log.debug("Added noise and reduced viscosity")
+
+        self._bg.normalize()
+        self._bth.normalize()
+        self._pe.normalize()
+        self._visc.normalize()
+
+        self._log.debug("Normalized results")
+
+        return (
+            self._visc.view(self.batch_size, 1, self._phi.size(1), self._nw.size(2)),
+            self._bg.view(-1),
+            self._bth.view(-1),
+            self._pe.view(-1),
+        )
+
+    def _compute_visc(
+        self,
+        bg: torch.Tensor,
+        bth: torch.Tensor,
+        pe: torch.Tensor,
+        visc: torch.Tensor,
+    ):
         is_combo = torch.randint(
             2,
             size=(self.batch_size,),
@@ -368,66 +392,53 @@ class SampleGenerator:
             generator=self.generator,
             dtype=torch.bool,
         )
-        self._other_B.data[~is_combo] = 0.0
 
         self._log.debug("Chose combo and single samples")
-
-        self.visc[is_combo] = self._get_combo_samples(
-            self.bg[is_combo], self.bth[is_combo], self.pe[is_combo]
+        visc[is_combo] = self._get_combo_samples(
+            bg[is_combo], bth[is_combo], pe[is_combo]
         )
         self._log.debug("Computed combo samples")
-        self.visc[~is_combo] = self._get_single_samples(
-            self.bg[~is_combo], self.bth[~is_combo], self.pe[~is_combo]
+
+        visc[~is_combo] = self._get_single_samples(
+            bg[~is_combo], bth[~is_combo], pe[~is_combo]
         )
         self._log.debug("Computed single samples")
 
-        self.visc = self._trim(self.visc) / self.denominator
-        self._log.debug("Trimmed and divided samples")
-
-        normalize(
-            self.visc,
-            self.norm_visc_range.min,
-            self.norm_visc_range.max,
-            log_scale=True,
-        )
-        normalize(self.bg, self.bg_range.min, self.bg_range.max)
-        normalize(self.bth, self.bth_range.min, self.bth_range.max)
-        normalize(self.pe, self.pe_range.min, self.pe_range.max)
-        self._log.debug("Normalized results")
-
-        return self.visc, self.bg.flatten(), self.bth.flatten(), self.pe.flatten()
-
-    def _get_combo_samples(self, Bg: torch.Tensor, Bth: torch.Tensor, Pe: torch.Tensor):
+    def _get_combo_samples(self, bg: torch.Tensor, bth: torch.Tensor, pe: torch.Tensor):
         # print(Bg.shape, Bth.shape, Pe.shape, self.phi.shape, self.Nw.shape)
-        g = torch.minimum((Bg**3 / self.phi) ** (1 / 0.764), Bth**6 / self.phi**2)
-        Ne = Pe**2 * torch.minimum(
-            Bg ** (0.056 / (0.528 * 0.764))
-            * Bth ** (0.944 / 0.528)
-            / self.phi ** (1 / 0.764),
-            torch.minimum((Bth / self.phi ** (2 / 3)) ** 2, (Bth**3 / self.phi) ** 2),
+        g = torch.minimum(
+            (bg**3 / self._phi) ** (1 / 0.764), bth**6 / self._phi**2
+        )
+        Ne = pe**2 * torch.minimum(
+            bg ** (0.056 / (0.528 * 0.764))
+            * bth ** (0.944 / 0.528)
+            / self._phi ** (1 / 0.764),
+            torch.minimum(
+                (bth / self._phi ** (2 / 3)) ** 2, (bth**3 / self._phi) ** 2
+            ),
         )
         return (
-            self.nw
-            * (1 + (self.nw / Ne)) ** 2
-            * torch.minimum(1 / g, self.phi / Bth**2)
+            self._nw
+            * (1 + (self._nw / Ne)) ** 2
+            * torch.minimum(1 / g, self._phi / bth**2)
         )
 
-    def _get_bg_samples(self, Bg: torch.Tensor, Bth: torch.Tensor, Pe: torch.Tensor):
+    def _get_bg_samples(self, bg: torch.Tensor, bth: torch.Tensor, pe: torch.Tensor):
         # print(Bg.shape, Bth.shape, Pe.shape, self.phi.shape, self.Nw.shape)
-        g = (Bg**3 / self.phi) ** (1 / 0.764)
-        Ne = Pe**2 * g
-        return self.nw / g * (1 + (self.nw / Ne)) ** 2
+        g = (bg**3 / self._phi) ** (1 / 0.764)
+        Ne = pe**2 * g
+        return self._nw / g * (1 + (self._nw / Ne)) ** 2
 
-    def _get_bth_samples(self, Bg: torch.Tensor, Bth: torch.Tensor, Pe: torch.Tensor):
+    def _get_bth_samples(self, bg: torch.Tensor, bth: torch.Tensor, pe: torch.Tensor):
         # print(Bg.shape, Bth.shape, Pe.shape, self.phi.shape, self.Nw.shape)
-        g = Bth**6 / self.phi**2
-        Ne = Pe**2 * torch.minimum(
-            (Bth / self.phi ** (2 / 3)) ** 2, (Bth**3 / self.phi) ** 2
+        g = bth**6 / self._phi**2
+        Ne = pe**2 * torch.minimum(
+            (bth / self._phi ** (2 / 3)) ** 2, (bth**3 / self._phi) ** 2
         )
         return (
-            self.nw
-            * (1 + (self.nw / Ne)) ** 2
-            * torch.minimum(1 / g, self.phi / Bth**2)
+            self._nw
+            * (1 + (self._nw / Ne)) ** 2
+            * torch.minimum(1 / g, self._phi / bth**2)
         )
 
     def _add_noise_default(self, visc: torch.Tensor):
