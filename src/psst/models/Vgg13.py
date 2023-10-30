@@ -1,10 +1,10 @@
 from torch import Tensor
-from torch.nn import *
+from torch.nn import Conv2d, Flatten, Linear, MaxPool2d, Module, ReLU, Sequential
 
 
 class Vgg13(Module):
-    """Visualization Geometry Group neural network for training on 2D images.
-    """
+    """Visualization Geometry Group neural network for training on 2D images."""
+
     def __init__(self):
         super().__init__()
 

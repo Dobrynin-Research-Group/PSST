@@ -1,5 +1,15 @@
 from torch import Tensor, cat
-from torch.nn import *
+from torch.nn import (
+    AdaptiveAvgPool2d,
+    AvgPool2d,
+    Conv2d,
+    Flatten,
+    functional,
+    Linear,
+    MaxPool2d,
+    Module,
+    Sequential,
+)
 
 
 class BasicConv2d(Module):
