@@ -312,19 +312,41 @@ class SampleGenerator:
         )
 
     def __call__(self, num_batches: int):
+        if not isinstance(num_batches, int):
+            raise TypeError(
+                "Argument to SampleGenerator object must be non-negative integer"
+            )
+        if num_batches < 0:
+            raise ValueError(
+                "Argument to SampleGenerator object must be non-negative integer"
+            )
         self._num_batches = num_batches
         return self
 
     def __iter__(self):
+        if self._num_batches is None:
+            raise SyntaxError(
+                "SampleGenerator object must be called with an argument"
+                " (number of iterations) to be iterable"
+            )
         self._index = 0
         self._log.info("Starting %d iterations", self._num_batches)
         return self
 
     def __next__(
         self,
-    ) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        psst.NormedTensor, psst.NormedTensor, psst.NormedTensor, psst.NormedTensor
+    ]:
+        if self._num_batches is None:
+            raise SyntaxError(
+                "SampleGenerator object must be called with an argument"
+                " (number of iterations) to be iterable"
+            )
+
         if self._index >= self._num_batches:
             self._log.info("Completed all batches")
+            self._num_batches = None
             raise StopIteration
 
         self._index += 1
