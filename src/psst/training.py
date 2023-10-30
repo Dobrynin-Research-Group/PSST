@@ -1,29 +1,11 @@
 from __future__ import annotations
 import logging
 from pathlib import Path
-from typing import NamedTuple
 
 import torch
 
 from psst.samplegenerator import SampleGenerator
-
-
-class Checkpoint(NamedTuple):
-    """Represents a state during training. Can be easily saved to file `filepath` with
-
-    >>> chkpt = psst.Checkpoint(epoch, model.state_dict(), optimizer.state_dict())
-    >>> torch.save(chkpt, filepath)
-
-    Args:
-        epoch (int): How many cycles of training have been completed.
-        model_state (dict): The state of the neural network model as given by
-          ``torch.nn.Module.state_dict()``.
-        optimizer_state (dict): The state of the training optimizer as given by
-          ``torch.optim.Optimizer.state_dict()``.
-    """
-    epoch: int
-    model_state: dict
-    optimizer_state: dict
+from psst.checkpoint import Checkpoint
 
 
 def train(
