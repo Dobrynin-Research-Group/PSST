@@ -148,6 +148,7 @@ def train_model(
           this many epochs. If negative, save the model and optimizer when the loss
           reaches a new minimum. If zero, do not checkpoint.
     """
+
     chkpt = Checkpoint(start_epoch, model.state_dict(), optimizer.state_dict())
     min_loss = 1e6
 
@@ -158,9 +159,7 @@ def train_model(
             checkpoint_frequency > 0 and epoch % checkpoint_frequency == 0
         ):
             min_loss = loss
-            chkpt.epoch = epoch
-            chkpt.model_state = model.state_dict()
-            chkpt.optimizer_state = optimizer.state_dict()
+            chkpt = Checkpoint(epoch, model.state_dict(), optimizer.state_dict())
 
     if checkpoint_frequency != 0:
         torch.save(chkpt, checkpoint_filename)
