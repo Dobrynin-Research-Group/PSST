@@ -145,6 +145,10 @@ class SampleGenerator:
           blob parameter to use for normalization and generation.
         pe_range (:class:`Range`): The minimum and maximum values of the
           entanglement packing number to use for normalization and generation.
+        noise_factor (float): A Gaussian distribution of noise is added to each value
+          of the viscosity before reducing or normalizing. That noise is multiplied by
+          this factor. When set to ``0``, the resulting viscosity values follow the
+          given equations exactly. Defaults to ``0.05``.
         device (torch.device, optional): Device on which to create batches and compute
           samples. Defaults to ``torch.device("cpu")``.
         generator (torch.Generator, optional): Random number generator to use for
@@ -164,6 +168,7 @@ class SampleGenerator:
         bth_range: psst.Range,
         pe_range: psst.Range,
         batch_size: int,
+        noise_factor: float = 0.05,
         device: torch.device = torch.device("cpu"),
         generator: Optional[torch.Generator] = None,
     ) -> None:
@@ -181,6 +186,7 @@ class SampleGenerator:
         self.bth_range = bth_range
         self.pe_range = pe_range
 
+        self.noise_factor = noise_factor
         self.device = device
         if generator is None:
             self.generator = torch.Generator(device=self.device)
@@ -355,6 +361,12 @@ class SampleGenerator:
             * (1 + (self.nw / Ne)) ** 2
             * torch.minimum(1 / g, self.phi / Bth**2)
         )
+
+    def _add_noise_default(self, visc: torch.Tensor):
+        visc *= 1 + self.noise_factor * self._noise.normal_(generator=self.generator)
+
+    def _noop(self, visc: torch.Tensor):
+        pass
 
     # @torch.compile
     def _trim(
