@@ -371,17 +371,17 @@ class SampleGenerator:
     # @torch.compile
     def _trim(
         self,
-        samples: torch.Tensor,
+        visc: torch.Tensor,
         max_num_rows_select: int = 12,
         max_num_rows_nonzero: int = 48,
         num_concentrations_per_sample: int = 65,
-    ) -> torch.Tensor:
-        num_batches = samples.shape[0]
-        indices = torch.arange(self.nw.size(2), device=self.device)
+    ):
+        num_batches = visc.shape[0]
+        indices = torch.arange(self._nw.size(2), device=self.device)
 
         self._log.debug("Trimming Nw rows")
         for i in range(num_batches):
-            num_nonzero_per_row = torch.sum(samples[i] > 0, dim=0)
+            num_nonzero_per_row = torch.sum(visc[i] > 0, dim=0)
             top_rows = torch.argsort(num_nonzero_per_row, descending=True, dim=0)[
                 :max_num_rows_nonzero
             ]
@@ -393,18 +393,15 @@ class SampleGenerator:
                 generator=self.generator,
             )
             deselected_rows = torch.isin(indices, top_rows[selected], invert=True)
-            samples[i, deselected_rows, :] = 0.0
+            visc[i, deselected_rows, :] = 0.0
 
+        deselected_rows = torch.zeros(
+            (num_concentrations_per_sample,), dtype=torch.int, device=self.device
+        )
         self._log.debug("Trimming phi rows")
         for i in range(num_batches):
-            nonzero_rows = samples[i].nonzero(as_tuple=True)[0]
-            deselected_rows = torch.randint(
-                nonzero_rows.min(),
-                nonzero_rows.max(),
-                size=(num_concentrations_per_sample,),
-                device=self.device,
-                generator=self.generator,
-            )
-            samples[i, deselected_rows, :] = 0.0
-
-        return samples
+            nonzero_rows = visc[i].nonzero(as_tuple=True)[0]
+            lo = int(nonzero_rows.min().item())
+            hi = int(nonzero_rows.max().item())
+            deselected_rows.random_(lo, hi + 1, generator=self.generator)
+            visc[i, deselected_rows, :] = 0.0
