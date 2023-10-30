@@ -9,7 +9,7 @@ from psst.models import Inception3
 def main():
     device = torch.device("cpu")
 
-    config = psst.loadConfig(sys.argv[1])
+    config = psst.load_config(sys.argv[1])
     run_config = config.run_config
     adam_config = config.adam_config
     generator_config = config.generator_config
