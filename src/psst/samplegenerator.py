@@ -5,95 +5,12 @@ parameters, and yield the normalized values (between 0 and 1).
 """
 from __future__ import annotations
 import logging
-from math import log10
 from typing import Optional
+from warnings import warn
 
 import torch
 
 import psst
-
-
-def normalize(
-    arr: torch.Tensor, min: float, max: float, log_scale: bool = False
-) -> torch.Tensor:
-    r"""Normalize a Tensor from its true values into a :math:`[0, 1]` scale using
-    given minimum and maximum values following the equation for each value of
-    :math:`x` in ``arr``:
-
-    .. math::
-
-        y = \frac{x - min}{max - min}
-
-    If ``log_scale`` is ``True``, the equation is instead
-
-    .. math::
-
-        y = \frac{\log_{10}(x) - \log_{10}(min)}{\log_{10}(max) - \log_{10}(min)}
-
-    Args:
-        arr (torch.Tensor): The Tensor to be normalized.
-        min (float): The value to map to 0.
-        max (float): The value to map to 1.
-        log_scale (bool, optional): When ``True``, the base-10 logarithm of the values
-          of ``arr``, ``min``, and ``max`` are used instead of the given values.
-          Defaults to ``False``.
-
-    Returns:
-        torch.Tensor: The normalized Tensor.
-    """
-    out_arr = arr.clone()
-    if log_scale:
-        min = log10(min)
-        max = log10(max)
-        out_arr.log10_()
-
-    out_arr -= min
-    out_arr /= max - min
-    return out_arr
-
-
-def unnormalize(
-    arr: torch.Tensor, min: float, max: float, log_scale: bool = False
-) -> torch.Tensor:
-    r"""Unnormalize a Tensor from the :math:`[0, 1]` scale to its true values using
-    given minimum and maximum values following the equation for each value of
-    :math:`x` in ``arr``:
-
-    .. math::
-
-        y = (max - min) x + min
-
-    If ``log_scale`` is ``True``, the equation is instead
-
-    .. math::
-
-        \begin{align*}
-        y^\prime &= \left[\log_{10}(max) - \log_{10}(min)\right] x + \log_{10}(min) \\
-        y &= 10^{y^\prime}
-        \end{align*}
-
-    Args:
-        arr (torch.Tensor): The Tensor to be unnormalized.
-        min (float): The value to map to from 0.
-        max (float): The value to map to from 1.
-        log_scale (bool, optional): When ``True``, the base-10 logarithm of the values
-          of ``arr``, ``min``, and ``max`` are used instead of the given values.
-          Defaults to ``False``.
-
-    Returns:
-        torch.Tensor: The unnormalized Tensor.
-    """
-    out_arr = arr.clone()
-    if log_scale:
-        min = log10(min)
-        max = log10(max)
-
-    out_arr = arr * (max - min)
-    out_arr += min
-
-    if log_scale:
-        torch.pow(10, out_arr, out=out_arr)
-    return out_arr
 
 
 class SampleGenerator:
@@ -376,7 +293,7 @@ class SampleGenerator:
             self._bg.view(-1),
             self._bth.view(-1),
             self._pe.view(-1),
-        )
+        )  # type: ignore
 
     def _compute_visc(
         self,
