@@ -10,10 +10,23 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Literal, NamedTuple, Optional
+from typing import Any, Literal, NamedTuple, Optional
 
+import attrs
+import attrs.validators as valid
+import attrs.converters as conv
 from ruamel.yaml import YAML
 
+from psst import Range
+
+__all__ = [
+    "Parameter",
+    "RunConfig",
+    "AdamConfig",
+    "GeneratorConfig",
+    "ConfigTuple",
+    "load_config",
+]
 
 Parameter = Literal["Bg", "Bth"]
 """Represents either the good solvent parameter (``'Bg'``) or the thermal blob
@@ -21,7 +34,7 @@ parameter (``'Bth'``).
 """
 
 
-def getDictFromFile(filepath: str | Path) -> dict[str]:
+def get_dict_from_file(filepath: str | Path) -> dict[str, Any]:
     """Reads a YAML or JSON file and returns the contents as a dictionary.
 
     Args:
@@ -60,34 +73,16 @@ def getDictFromFile(filepath: str | Path) -> dict[str]:
     return config_dict
 
 
-class Range(NamedTuple):
-    """Specifies a range of values between ``min`` and ``max``,
-    optionally specifying ``num`` for number of points and ``log_scale``
-    for logarithmic spacing. For use in, e.g., PyTorch's
-    `torch.linspace <https://pytorch.org/docs/stable/generated/torch.linspace.html>`_,
-    or `torch.logspace <https://pytorch.org/docs/stable/generated/torch.logspace.html>`_.
+class GenericConfig:
+    def keys(self):
+        return attrs.asdict(self).keys()
 
-    Usage:
-        >>> r = Range(1.0, 1e6, num = 100, log_scale = True)
-        >>> values = torch.logspace(log10(r.min), log10(r.max), r.num)
-
-    Args:
-        min (float): Minimum value of the range.
-        max (float): Maximum value of the range.
-        num (int): Number of values in the range, including endpoints, default is 0.
-        log_scale (bool): If False (the default), the ``num`` values are evenly
-          spaced between ``min`` and ``max``. If True, the values are spaced
-          geometrically, such that the respecitve quotients of any two pairs of
-          adjacent elements are equal.
-    """
-    min: float
-    max: float
-    num: int = 0
-    log_scale: bool = False
+    def __getitem__(self, key: str):
+        return getattr(self, key)
 
 
-# @define(kw_only=True)
-class RunConfig(NamedTuple):
+@attrs.define(kw_only=True, eq=False)
+class RunConfig(GenericConfig):
     """Configuration settings for the training/testing cycle.
 
     Args:
@@ -102,48 +97,56 @@ class RunConfig(NamedTuple):
           and optimizer. Defaults to ``"chk.pt"``.
     """
 
-    num_epochs: int
-    num_samples_train: int
-    num_samples_test: int
-    checkpoint_frequency: int = 0
-    checkpoint_filename: str = "chk.pt"
-
-    def keys(self):
-        return self._fields
-    
-    def __getitem__(self, key: str):
-        return getattr(self, key)
+    num_epochs: int = attrs.field(converter=int, validator=valid.ge(0))
+    num_samples_train: int = attrs.field(converter=int, validator=valid.ge(0))
+    num_samples_test: int = attrs.field(converter=int, validator=valid.ge(0))
+    checkpoint_frequency: int = attrs.field(default=0, converter=int)
+    checkpoint_filename: str = attrs.field(default="chk.pt", converter=str)
 
 
-class AdamConfig(NamedTuple):
+@attrs.define(kw_only=True, eq=False)
+class AdamConfig(GenericConfig):
     """Configuration settings for the Adam optimizer. See PyTorch's
     `Adam optimizer <https://pytorch.org/docs/stable/generated/torch.optim.Adam.html>`_
     documentation for details.
     """
-    lr: float = 0.001
-    betas: tuple[float, float] = (0.9, 0.999)
-    eps: float = 1e-8
-    weight_decay: float = 0.0
-    amsgrad: bool = False
-    foreach: Optional[bool] = None
-    maximize: bool = False
-    capturable: bool = False
-    differentiable: bool = False
-    fused: Optional[bool] = None
 
-    def keys(self):
-        return self._fields
-    
-    def __getitem__(self, key: str):
-        return getattr(self, key)
+    lr: float = attrs.field(
+        default=0.001, converter=float, validator=[valid.gt(0.0), valid.lt(1.0)]
+    )
+    betas: tuple[float, float] = attrs.field(
+        default=(0.9, 0.999),
+        validator=[
+            valid.deep_iterable([valid.gt(0), valid.lt(1)]),
+            valid.min_len(2),
+            valid.max_len(2),
+        ],
+    )
+    eps: float = attrs.field(
+        default=1e-8, converter=float, validator=[valid.gt(0), valid.lt(1)]
+    )
+    weight_decay: float = attrs.field(
+        default=0.0, converter=float, validator=[valid.ge(0), valid.lt(1)]
+    )
+    amsgrad: bool = attrs.field(default=False, converter=conv.to_bool)
+    foreach: Optional[bool] = attrs.field(
+        default=None, converter=conv.optional(conv.to_bool)
+    )
+    maximize: bool = attrs.field(default=False, converter=conv.to_bool)
+    capturable: bool = attrs.field(default=False, converter=conv.to_bool)
+    differentiable: bool = attrs.field(default=False, converter=conv.to_bool)
+    fused: Optional[bool] = attrs.field(
+        default=None, converter=conv.optional(conv.to_bool)
+    )
 
 
 # TODO: Include stripping/trimming
-class GeneratorConfig(NamedTuple):
+@attrs.define(kw_only=True, eq=True)
+class GeneratorConfig(GenericConfig):
     """Configuration settings for the :class:`SampleGenerator` class.
 
     Args:
-        parameter (Parameter): Either 'Bg' or 'Bth' to generate
+        parameter (str): Either 'Bg' or 'Bth' to generate
           viscosity samples for the good solvent parameter or the thermal blob
           parameter, respectively.
         batch_size (int): Number of samples generated per batch.
@@ -160,65 +163,33 @@ class GeneratorConfig(NamedTuple):
         pe_range (Range): The range of values for the entanglement
           packing number. This is only used for normalization, so `num=0` is fine.
     """
-    parameter: Parameter
 
-    batch_size: int
+    parameter: str = attrs.field(converter=str, validator=valid.in_(("Bg", "Bth")))
 
-    phi_range: Range
-    nw_range: Range
-    visc_range: Range
+    batch_size: int = attrs.field(converter=int, validator=valid.gt(0))
 
-    bg_range: Range
-    bth_range: Range
-    pe_range: Range
+    phi_range: Range = attrs.field(
+        converter=Range.from_dict, validator=valid.instance_of(Range)
+    )
+    nw_range: Range = attrs.field(
+        converter=Range.from_dict, validator=valid.instance_of(Range)
+    )
+    visc_range: Range = attrs.field(
+        converter=Range.from_dict, validator=valid.instance_of(Range)
+    )
 
-    def keys(self):
-        return self._fields
-    
-    def __getitem__(self, key: str):
-        return getattr(self, key)
-
-
-def getGeneratorConfig(config_dict: dict[str]) -> GeneratorConfig:
-    """Convenience class for creating a GeneratorConfig from a nested dictionary
-    of settings.
-
-    Args:
-        config_dict (dict[str]): A nested dictionary with keys of type string
-
-    Raises:
-        ValueError: If ``config_dict['parameter']`` is not either ``'Bg'`` or
-          ``'Bth'``.
-
-    Returns:
-        GeneratorConfig: An instance of :class:`GeneratorConfig` based on the
-          given dictionary of settings.
-    """
-    parameter = config_dict["parameter"]
-    if parameter not in ("Bg", "Bth"):
-        raise ValueError("GeneratorConfig.parameter must be either 'Bg' or 'Bth'.")
-    
-    batch_size = int(config_dict["batch_size"])
-
-    phi_range = Range(**(config_dict.pop("phi_range")))
-    nw_range = Range(**(config_dict.pop("nw_range")))
-    visc_range = Range(**(config_dict.pop("visc_range")))
-    bg_range = Range(**(config_dict.pop("bg_range")))
-    bth_range = Range(**(config_dict.pop("bth_range")))
-    pe_range = Range(**(config_dict.pop("pe_range")))
-    return GeneratorConfig(
-        parameter=parameter,
-        batch_size=batch_size,
-        phi_range=phi_range,
-        nw_range=nw_range,
-        visc_range=visc_range,
-        bg_range=bg_range,
-        bth_range=bth_range,
-        pe_range=pe_range,
+    bg_range: Range = attrs.field(
+        converter=Range.from_dict, validator=valid.instance_of(Range)
+    )
+    bth_range: Range = attrs.field(
+        converter=Range.from_dict, validator=valid.instance_of(Range)
+    )
+    pe_range: Range = attrs.field(
+        converter=Range.from_dict, validator=valid.instance_of(Range)
     )
 
 
-class Config(NamedTuple):
+class ConfigTuple(NamedTuple):
     """A NamedTuple with parameters ``run_config``, ``adam_config``, and
     ``generator_config``, of types :class:`RunConfig`, :class:`AdamConfig`,
     and :class:`GeneratorConfig`, respectively.
@@ -234,24 +205,25 @@ class Config(NamedTuple):
     generator_config: GeneratorConfig
 
 
-def loadConfig(filename: str | Path) -> Config:
-    """Get configuration settings from a YAML or JSON file (see examples).
+def load_config(filename: str | Path) -> ConfigTuple:
+    """Get configuration settings from a YAML or JSON file (see examples) as a tuple
+    `(RunConfig, AdamConfig, GeneratorConfig)`.
 
     Args:
         filename (str | Path): Path to a YAML or JSON file.
 
     Returns:
-        :class:`Config`: Settings read from the config file.
+        :class:`ConfigTuple`: A tuple of `RunConfig`, `AdamConfig`, `GeneratorConfig`
     """
-    config_dict = getDictFromFile(filename)
+    config_dict = get_dict_from_file(filename)
 
-    run_dict = config_dict.get("run")
+    run_dict: dict[str, Any] = config_dict.get("run", dict())
     run_config = RunConfig(**run_dict)
 
-    adam_dict = config_dict.get("adam", dict())
+    adam_dict: dict[str, Any] = config_dict.get("adam", dict())
     adam_config = AdamConfig(**adam_dict)
 
-    generator_dict = config_dict.get("generator")
-    generator_config = getGeneratorConfig(generator_dict)
+    generator_dict: dict[str, Any] = config_dict.get("generator", dict())
+    generator_config = GeneratorConfig(**generator_dict)
 
-    return Config(run_config, adam_config, generator_config)
+    return ConfigTuple(run_config, adam_config, generator_config)
