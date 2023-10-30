@@ -188,82 +188,128 @@ class SampleGenerator:
 
         self.noise_factor = noise_factor
         self.device = device
-        if generator is None:
-            self.generator = torch.Generator(device=self.device)
+        self.generator = generator
+
+        self._validate_args()
+        if self.noise_factor == 0:
+            self._add_noise = self._noop
         else:
-            self.generator = generator
-        self._log.debug("Initialized random number generator")
+            self._add_noise = self._add_noise_default
 
-        assert isinstance(parameter, psst.Parameter)
-        if parameter == "Bg":
-            # self.primary_B = self.Bg
-            self._other_B = self.bth
-            self._get_single_samples = self._get_bg_samples
-            self.denominator = self.nw * self.phi ** (1 / 0.764)
-            self._log.debug("Initialized Bg-specific members")
-        else:
-            # self.primary_B = self.Bth
-            self._other_B = self.bg
-            self._get_single_samples = self._get_bth_samples
-            self.denominator = self.nw * self.phi**2
-            self._log.debug("Initialized Bth-specific members")
+        self._init_random()
+        self._init_grid_tensors()
+        self._init_normed_tensors()
 
-        # Create tensors for phi (concentration) and Nw (number of repeat units per
-        # chain). Both are broadcastable to size
-        # (batch_size, phi_range.num, nw_range.num) for element-wise operations
-        if phi_range.log_scale:
-            self.phi = torch.logspace(
-                log10(phi_range.min),
-                log10(phi_range.max),
-                phi_range.num,
-                device=device,
-            )
-        else:
-            self.phi = torch.linspace(
-                phi_range.min, phi_range.max, phi_range.num, device=device
-            )
-        self.phi = self.phi.reshape(1, -1, 1)
-
-        if nw_range.log_scale:
-            self.nw = torch.logspace(
-                log10(nw_range.min),
-                log10(nw_range.max),
-                nw_range.num,
-                device=device,
-            )
-        else:
-            self.nw = torch.linspace(
-                nw_range.min, nw_range.max, nw_range.num, device=device
-            )
-        self.nw = self.nw.reshape(1, 1, -1)
-        self._log.debug("Initialized self.phi with size %s", str(self.phi.shape))
-        self._log.debug("Initialized self.nw with size %s", str(self.nw.shape))
-
-        self.visc = torch.zeros(
-            (self.batch_size, self.phi.shape[1], self.nw.shape[2]),
-            dtype=torch.float32,
-            device=device,
-        )
-
-        self.norm_visc_range = psst.Range(
-            visc_range.min / self.denominator.max(),
-            visc_range.max / self.denominator.min(),
-        )
-
-        self._num_batches: int = 0
+        self._num_batches: Optional[int] = None
         self._index: int = 0
 
-        self.bg = torch.zeros(
-            (self.batch_size, 1, 1), dtype=torch.float32, device=device
-        )
-        self.bth = torch.zeros_like(self.bg)
-        self.pe = torch.zeros_like(self.bg)
-        self._log.debug(
-            "Initialized self.bg, self.bth, self.pe each with size %s",
-            str(self.bg.shape),
-        )
-
         self._log.debug("Completed initialization")
+
+    def _validate_args(self):
+        if isinstance(self.parameter, bytes):
+            self.parameter = self.parameter.decode()
+        if not isinstance(self.parameter, str):
+            raise TypeError(
+                "Parameter `parameter` must be a string, either 'Bg' or 'Bth'"
+            )
+        if self.parameter not in ["Bg", "Bth"]:
+            raise ValueError("Parameter `parameter` must be either 'Bg' or 'Bth'")
+
+        try:
+            self.batch_size = int(self.batch_size)
+        except ValueError:
+            raise TypeError(
+                "Parameter `batch_size` must be an int (or convertable to an int)"
+            )
+        if self.batch_size <= 0:
+            raise ValueError("Parameter `batch_size` must be positive")
+
+        if not isinstance(self.phi_range, psst.Range):
+            raise TypeError("Must be of type psst.Range")
+        if not isinstance(self.nw_range, psst.Range):
+            raise TypeError("Must be of type psst.Range")
+        if not isinstance(self.visc_range, psst.Range):
+            raise TypeError("Must be of type psst.Range")
+        if not isinstance(self.bg_range, psst.Range):
+            raise TypeError("Must be of type psst.Range")
+        if not isinstance(self.bth_range, psst.Range):
+            raise TypeError("Must be of type psst.Range")
+        if not isinstance(self.pe_range, psst.Range):
+            raise TypeError("Must be of type psst.Range")
+
+        try:
+            self.noise_factor = float(self.noise_factor)
+        except ValueError:
+            raise TypeError(
+                "Parameter `noise_factor` must be a float (or convertable to a float)"
+            )
+        if abs(self.noise_factor) >= 1.0:
+            warn(
+                "Absolute value of parameter `noise_factor` is 1 or greater."
+                " This may result in negative values of specfic viscosity."
+            )
+
+        if isinstance(self.device, str):
+            self.device: torch.device = torch.device(self.device)
+
+        if not (self.generator is None or isinstance(self.generator, torch.Generator)):
+            raise TypeError(
+                "If specified, parameter `generator` must be an instance of"
+                " `torch.Generator` or a subclass thereof."
+            )
+
+    def _init_random(self):
+        if self.generator is None:
+            self.generator = torch.Generator()
+        self.generator.seed()
+        self._log.debug("Initialized random number generator")
+
+        self._noise = torch.zeros_like(self._visc)
+
+    def _init_grid_tensors(self):
+        self._phi = psst.GridTensor.create_from_range(
+            self.phi_range, device=self.device
+        )
+        self._phi.resize_(1, -1, 1)
+        self._log.debug("Initialized self._phi with size %s", str(self._phi.shape))
+
+        self._nw = psst.GridTensor.create_from_range(self.nw_range, device=self.device)
+        self._nw.resize_(1, 1, -1)
+        self._log.debug("Initialized self._nw with size %s", str(self._nw.shape))
+
+    def _init_normed_tensors(self):
+        if self.parameter == "Bg":
+            self._get_single_samples = self._get_bg_samples
+            self._denominator = self._nw * self._phi ** (1 / 0.764)
+            self._log.debug("Initialized Bg-specific members")
+        else:
+            self._get_single_samples = self._get_bth_samples
+            self._denominator = self._nw * self._phi**2
+            self._log.debug("Initialized Bth-specific members")
+
+        self._visc = psst.NormedTensor.create(
+            self.batch_size,
+            self._phi.shape[1],
+            self._nw.shape[2],
+            min_value=self.visc_range.min_value / self._denominator.max().item(),
+            max_value=self.visc_range.max_value / self._denominator.min().item(),
+            device=self.device,
+        )
+        self._log.debug("Initialized self._visc with size %s", str(self._visc.shape))
+
+        self._bg = psst.NormedTensor.create_from_range(
+            self.bg_range, device=self.device, generator=self.generator
+        )
+        self._bth = psst.NormedTensor.create_from_range(
+            self.bth_range, device=self.device, generator=self.generator
+        )
+        self._pe = psst.NormedTensor.create_from_range(
+            self.pe_range, device=self.device, generator=self.generator
+        )
+        self._log.debug(
+            "Initialized self._bg, self._bth, self._pe each with size %s",
+            str(self._bg.shape),
+        )
 
     def __call__(self, num_batches: int):
         self._num_batches = num_batches
