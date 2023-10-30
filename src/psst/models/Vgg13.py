@@ -46,5 +46,11 @@ class Vgg13(Module):
             Linear(1000, 1),
         )
 
+    def _transform_input(self, x: Tensor) -> Tensor:
+        if x.ndim == 3:
+            x = x.view(x.shape[0], 1, *x.shape[1:])
+        return x
+
     def forward(self, x: Tensor) -> Tensor:
+        x = self._transform_input(x)
         return self.conv_stack(x)
