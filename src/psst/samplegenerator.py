@@ -101,7 +101,7 @@ class SampleGenerator:
 
     The resulting object is callable and iterable with similar functionality to the
     built-in ``range`` function. It takes one parameter, the number of batches/cycles,
-    and the four element tuple it generates consists of 
+    and the four-element tuple it generates consists of
 
     1. The normalized, reduced viscosity with shape
     ``(batch_size, phi_range.num, nw_range.num)``. This is considered as a batch of
@@ -109,15 +109,15 @@ class SampleGenerator:
     ``psst.models.Inception3``).
 
     2. The generated values of :math:`B_g` with shape ``(batch_size,)``.
-    
+
     3. The generated values of :math:`B_{th}` (same shape as for :math:`B_g`).
-    
+
     4. The generated values of :math:`P_e` (same shape again).
 
     Example:
         >>> import psst
         >>> from psst.models import Inception3
-        >>> 
+        >>>
         >>> model = Inception3()
         >>> config = psst.getConfig("config.yaml")
         >>> gen_samples = psst.SampleGenerator(**config.generator_config)
