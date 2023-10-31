@@ -5,6 +5,9 @@ import attrs.converters as conv
 import attrs.validators as valid
 
 
+__all__ = ["convert_to_tuple", "convert_to_range", "Range"]
+
+
 @singledispatch
 def convert_to_tuple(x) -> tuple[int, ...]:
     raise TypeError("Input must be either a tuple or a number (float or int)")
@@ -17,8 +20,13 @@ def _(x):
 
 
 @convert_to_tuple.register
-def _(x: tuple[int, ...]):
+def _(x: tuple):
     return x
+
+
+@convert_to_tuple.register
+def _(x: list):
+    return tuple(x)
 
 
 @attrs.frozen(eq=True)
@@ -48,7 +56,7 @@ class Range:
 
     @staticmethod
     def _check_log_scale(instance: "Range", _, log_scale_val: bool):
-        if log_scale_val and instance.min_value < 0.0:
+        if log_scale_val and instance.min_value <= 0.0:
             raise ValueError(
                 f"Cannot have negative values of Range with `log_scale=True`"
             )
@@ -58,7 +66,7 @@ class Range:
     shape: tuple[int, ...] = attrs.field(
         default=None,
         converter=convert_to_tuple,
-        validator=valid.deep_iterable(valid.gt(0)),
+        validator=valid.deep_iterable([valid.gt(0), valid.instance_of(int)]),
     )
     log_scale: bool = attrs.field(
         default=False, converter=bool, validator=_check_log_scale
