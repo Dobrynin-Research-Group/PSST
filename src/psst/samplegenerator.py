@@ -11,6 +11,7 @@ from warnings import warn
 import torch
 
 import psst
+from psst.range import Range
 
 
 class SampleGenerator:
@@ -204,12 +205,14 @@ class SampleGenerator:
             self._denominator = self._nw * self._phi**2
             self._log.debug("Initialized Bth-specific members")
 
-        self._visc = psst.NormedTensor.create(
-            self.batch_size,
-            self._phi.shape[1],
-            self._nw.shape[2],
-            min_value=self.visc_range.min_value / self._denominator.max().item(),
-            max_value=self.visc_range.max_value / self._denominator.min().item(),
+        reduced_visc_range = Range(
+            self.visc_range.min_value / self._denominator.max().item(),
+            self.visc_range.max_value / self._denominator.min().item(),
+            log_scale=self.visc_range.log_scale,
+        )
+        self._visc = psst.NormedTensor.create_from_range(
+            range=reduced_visc_range,
+            shape=(self.batch_size, self._phi.shape[1], self._nw.shape[2]),
             device=self.device,
         )
         self._log.debug("Initialized self._visc with size %s", str(self._visc.shape))
