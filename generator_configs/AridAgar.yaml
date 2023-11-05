@@ -1,5 +1,4 @@
 ---
-parameter: Bg
 batch_size: 64
 phi_range:
   min_value: 3.e-5
