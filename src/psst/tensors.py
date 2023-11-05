@@ -1,5 +1,6 @@
 from math import log10
 from typing import Optional
+
 import numpy as np
 import torch
 
@@ -41,20 +42,17 @@ class GridTensor(torch.Tensor):
     def create_from_range(
         cls, range: Range, device: torch.device = torch.device("cpu")
     ) -> "GridTensor":
-        product = 1
-        for s in range.shape:
-            product *= s
+        if range.shape is None:
+            raise ValueError("Range shape cannot be None")
 
         t = cls.create(
             min_value=range.min_value,
             max_value=range.max_value,
-            steps=product,
+            steps=range.shape,
             log_scale=range.log_scale,
             device=device,
-        ).reshape(range.shape)
+        )
 
-        if not isinstance(t, GridTensor):
-            t = GridTensor(t)
         return t
 
 
@@ -134,11 +132,12 @@ class NormedTensor(torch.Tensor):
     def create_from_range(
         cls,
         range: Range,
+        shape: tuple[int, ...] = (1,),
         device: torch.device = torch.device("cpu"),
         generator: Optional[torch.Generator] = None,
     ) -> "NormedTensor":
         return cls.create(
-            *range.shape,
+            *shape,
             min_value=range.min_value,
             max_value=range.max_value,
             log_scale=range.log_scale,
