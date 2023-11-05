@@ -7,6 +7,7 @@ The getConfig function reads a YAML or JSON file and returns a :class:`Config` o
 a NamedTuple of the three config classes (see examples directory).
 """
 from __future__ import annotations
+from functools import singledispatch
 import json
 import logging
 from pathlib import Path
@@ -81,7 +82,7 @@ class GenericConfig:
         return getattr(self, key)
 
 
-@attrs.define(kw_only=True, eq=False)
+@attrs.define(kw_only=True)
 class RunConfig(GenericConfig):
     """Configuration settings for the training/testing cycle.
 
@@ -104,7 +105,7 @@ class RunConfig(GenericConfig):
     checkpoint_filename: str = attrs.field(default="chk.pt", converter=str)
 
 
-@attrs.define(kw_only=True, eq=False)
+@attrs.define(kw_only=True)
 class AdamConfig(GenericConfig):
     """Configuration settings for the Adam optimizer. See PyTorch's
     `Adam optimizer <https://pytorch.org/docs/stable/generated/torch.optim.Adam.html>`_
@@ -140,7 +141,34 @@ class AdamConfig(GenericConfig):
     )
 
 
-# TODO: Include stripping/trimming
+@attrs.define(kw_only=True)
+class TrimConfig:
+    num_nw_choices: int = 48
+    num_nw_to_select: int = 12
+    num_phi_to_select: int = 65
+
+
+@singledispatch
+def convert_to_trim_config(d) -> TrimConfig:
+    raise NotImplementedError(f"Cannot convert object of type {type(d)} to TrimConfig")
+
+
+@convert_to_trim_config.register
+def _(d: dict):
+    return TrimConfig(**d)
+
+
+@convert_to_trim_config.register(list)
+@convert_to_trim_config.register(tuple)
+def _(d):
+    return TrimConfig(*d)
+
+
+@convert_to_trim_config.register
+def _(d: TrimConfig):
+    return d
+
+
 @attrs.define(kw_only=True, eq=True)
 class GeneratorConfig(GenericConfig):
     """Configuration settings for the :class:`SampleGenerator` class.
@@ -187,6 +215,9 @@ class GeneratorConfig(GenericConfig):
     pe_range: Range = attrs.field(
         converter=convert_to_range, validator=valid.instance_of(Range)
     )
+
+    noise_factor: float = attrs.field(default=0.05, converter=float)
+    trim: TrimConfig = attrs.field(factory=TrimConfig, converter=convert_to_trim_config)
 
 
 class ConfigTuple(NamedTuple):
