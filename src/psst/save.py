@@ -1,12 +1,9 @@
 from enum import Enum
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 from attrs import asdict
-from torch import save as tsave
-from torch import load as tload
-
-from psst import Range, convert_to_range
+import torch
 
 
 __all__ = ["ModelType", "Checkpoint", "FinalState"]
@@ -44,32 +41,21 @@ class FinalState(NamedTuple):
     bg_model_state: dict
     bth_model_state: dict
 
-    phi_range: Range
-    nw_range: Range
-    visc_range: Range
-    bg_range: Range
-    bth_range: Range
-
     def save(self, filepath: Path | str) -> None:
-        obj: dict[str, Any] = dict()
-        for key, val in self._asdict().items():
-            if isinstance(val, Range):
-                obj[key] = asdict(val)
-            else:
-                obj[key] = val
-
-        tsave(obj, filepath)
+        torch.save(
+            {
+                "model_type": self.model_type,
+                "bg_model_state": self.bg_model_state,
+                "bth_model_state": self.bth_model_state,
+            },
+            filepath,
+        )
 
     @classmethod
     def load(cls, filepath: Path | str) -> "FinalState":
-        obj = tload(filepath)
+        obj = torch.load(filepath)
         return cls(
             obj["model_state"],
             obj["bg_model_state"],
             obj["bth_model_state"],
-            convert_to_range(obj["phi_range"]),
-            convert_to_range(obj["nw_range"]),
-            convert_to_range(obj["visc_range"]),
-            convert_to_range(obj["bg_range"]),
-            convert_to_range(obj["bth_range"]),
         )

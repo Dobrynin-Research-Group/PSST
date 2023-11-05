@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 
 from psst.samplegenerator import SampleGenerator
-from psst.checkpoint import Checkpoint
+from psst.save import Checkpoint
 
 
 __all__ = ["train", "validate", "train_model"]
