@@ -63,6 +63,11 @@ def _(x: dict) -> Range:
     return Range(**x)
 
 
+@convert_to_range.register
+def _(x: Range) -> Range:
+    return x
+
+
 @convert_to_range.register(tuple)
 @convert_to_range.register(list)
 def _(x) -> Range:
