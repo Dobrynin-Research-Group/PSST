@@ -27,7 +27,7 @@ def main():
         optimizer.load_state_dict(chkpt.optimizer_state)
 
     loss_fn = torch.nn.MSELoss()
-    generator = psst.SampleGenerator(**generator_config, device=device)
+    generator = psst.SampleGenerator(generator_config, device=device)
 
     psst.train_model(
         model=model,
