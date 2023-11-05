@@ -2,7 +2,6 @@ from enum import Enum
 from pathlib import Path
 from typing import NamedTuple
 
-from attrs import asdict
 import torch
 
 

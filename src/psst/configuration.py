@@ -20,7 +20,6 @@ from ruamel.yaml import YAML
 from psst import Range, convert_to_range
 
 __all__ = [
-    "Parameter",
     "RunConfig",
     "AdamConfig",
     "GeneratorConfig",
@@ -30,11 +29,6 @@ __all__ = [
     "load_adam_config",
     "load_generator_config",
 ]
-
-Parameter = Literal["Bg", "Bth"]
-"""Represents either the good solvent parameter (``'Bg'``) or the thermal blob
-parameter (``'Bth'``).
-"""
 
 
 def get_dict_from_file(filepath: str | Path) -> dict[str, Any]:
@@ -193,8 +187,6 @@ class GeneratorConfig(GenericConfig):
         pe_range (Range): The range of values for the entanglement
           packing number. This is only used for normalization, so `num=0` is fine.
     """
-
-    parameter: str = attrs.field(converter=str, validator=valid.in_(("Bg", "Bth")))
 
     batch_size: int = attrs.field(converter=int, validator=valid.gt(0))
 

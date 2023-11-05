@@ -4,6 +4,7 @@ degree of polymerization of the polymer solution from the samples of molecular
 parameters, and yield the normalized values (between 0 and 1).
 """
 from __future__ import annotations
+from enum import Enum
 import logging
 from typing import Optional
 from warnings import warn
@@ -11,7 +12,9 @@ from warnings import warn
 import torch
 
 import psst
-from psst.range import Range
+from psst import Range, Parameter
+
+__all__ = ["SampleGenerator"]
 
 
 class SampleGenerator:
@@ -77,6 +80,7 @@ class SampleGenerator:
 
     def __init__(
         self,
+        parameter: Parameter,
         gen_config: psst.GeneratorConfig,
         *,
         device: torch.device = torch.device("cpu"),
@@ -92,7 +96,7 @@ class SampleGenerator:
         self.generator = generator
 
         self.batch_size = self.cfg.batch_size
-        self.parameter = self.cfg.parameter
+        self.parameter = parameter
 
         self._validate_args()
         if self.cfg.noise_factor == 0:
@@ -110,23 +114,17 @@ class SampleGenerator:
         self._log.debug("Completed initialization")
 
     def _validate_args(self):
-        if isinstance(self.cfg.parameter, bytes):
-            self.cfg.parameter = self.cfg.parameter.decode()
-        if not isinstance(self.cfg.parameter, str):
-            raise TypeError(
-                "Parameter `parameter` must be a string, either 'Bg' or 'Bth'"
-            )
-        if self.cfg.parameter not in ["Bg", "Bth"]:
-            raise ValueError("Parameter `parameter` must be either 'Bg' or 'Bth'")
+        if not isinstance(self.parameter, Parameter):
+            raise TypeError("Argument `parameter` must be of type ``psst.Parameter``.")
 
         try:
             self.cfg.batch_size = int(self.cfg.batch_size)
         except ValueError:
             raise TypeError(
-                "Parameter `batch_size` must be an int (or convertable to an int)"
+                "Argument `batch_size` must be an int (or convertable to an int)"
             )
         if self.cfg.batch_size <= 0:
-            raise ValueError("Parameter `batch_size` must be positive")
+            raise ValueError("Argument `batch_size` must be positive")
 
         if not isinstance(self.cfg.phi_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
@@ -145,7 +143,7 @@ class SampleGenerator:
             self.cfg.noise_factor = float(self.cfg.noise_factor)
         except ValueError:
             raise TypeError(
-                "Parameter `noise_factor` must be a float (or convertable to a float)"
+                "Argument `noise_factor` must be a float (or convertable to a float)"
             )
         if abs(self.cfg.noise_factor) >= 1.0:
             warn(
@@ -158,7 +156,7 @@ class SampleGenerator:
 
         if not (self.generator is None or isinstance(self.generator, torch.Generator)):
             raise TypeError(
-                "If specified, parameter `generator` must be an instance of"
+                "If specified, argument `generator` must be an instance of"
                 " `torch.Generator` or a subclass thereof."
             )
 
@@ -184,7 +182,7 @@ class SampleGenerator:
         self._log.debug("Initialized self._nw with size %s", str(self._nw.shape))
 
     def _init_normed_tensors(self):
-        if self.cfg.parameter == "Bg":
+        if self.parameter is Parameter.bg:
             self._get_single_samples = self._get_bg_samples
             self._denominator = self._nw * self._phi ** (1 / 0.764)
             self._log.debug("Initialized Bg-specific members")
