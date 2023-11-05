@@ -371,34 +371,39 @@ class SampleGenerator:
     def _trim(
         self,
         visc: torch.Tensor,
-        max_num_rows_select: int = 12,
-        max_num_rows_nonzero: int = 48,
-        num_concentrations_per_sample: int = 65,
+        num_nw_to_select: int = 12,
+        num_nw_choices: int = 48,
+        num_phi_to_select: int = 65,
     ):
         num_batches = visc.shape[0]
         indices = torch.arange(self._nw.size(2), device=self.device)
 
         self._log.debug("Trimming Nw rows")
         for i in range(num_batches):
-            num_nonzero_per_row = torch.sum(visc[i] > 0, dim=0)
-            top_rows = torch.argsort(num_nonzero_per_row, descending=True, dim=0)[
-                :max_num_rows_nonzero
+            # Get first max_num_rows_nonzero indices of Nw rows with most values of phi
+            num_nonzero_per_phi = torch.sum(visc[i] > 0, dim=0)
+            top_nw_inds = torch.argsort(num_nonzero_per_phi, descending=True, dim=0)[
+                :num_nw_choices
             ]
+            # Select max_num_rows_select of those Nw rows, set the rest to visc = 0
             selected = torch.randint(
                 0,
-                top_rows.shape[0],
-                size=(max_num_rows_select,),
+                top_nw_inds.shape[0],
+                size=(num_nw_to_select,),
                 device=self.device,
                 generator=self.generator,
             )
-            deselected_rows = torch.isin(indices, top_rows[selected], invert=True)
+            deselected_rows = torch.isin(indices, top_nw_inds[selected], invert=True)
             visc[i, deselected_rows, :] = 0.0
 
         deselected_rows = torch.zeros(
-            (num_concentrations_per_sample,), dtype=torch.int, device=self.device
+            (num_phi_to_select,), dtype=torch.int, device=self.device
         )
         self._log.debug("Trimming phi rows")
         for i in range(num_batches):
+            # Select num_concentrations_per_sample rows of phi
+            # (that aren't entirely 0), set the rest to visc = 0
+            # TODO: ensure that deselected_rows doesn't double count or undercount...
             nonzero_rows = visc[i].nonzero(as_tuple=True)[0]
             lo = int(nonzero_rows.min().item())
             hi = int(nonzero_rows.max().item())
