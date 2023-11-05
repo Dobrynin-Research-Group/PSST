@@ -1,17 +1,16 @@
 """Configuration classes for the training cycle, Adam optimizer, and SampleGenerator.
 
 Defines three configuration classes: :class:`RunConfig`, :class:`AdamConfig`, and
-:class:`GeneratorConfig`, which are used to configure the machine learning run
-settings, the Adam optimizer settings, and the settings for the SurfaceGenerator class.
-The getConfig function reads a YAML or JSON file and returns a :class:`Config` object,
-a NamedTuple of the three config classes (see examples directory).
+:class:`GeneratorConfig`, which are repectively used to configure the machine learning
+run settings, the Adam optimizer settings, and the settings for the SurfaceGenerator
+class. Each configuration class has its own `load_*_config` helper function.
 """
 from __future__ import annotations
 from functools import singledispatch
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal, NamedTuple, Optional
+from typing import Any, Literal, Optional
 
 import attrs
 import attrs.validators as valid
@@ -25,8 +24,11 @@ __all__ = [
     "RunConfig",
     "AdamConfig",
     "GeneratorConfig",
-    "ConfigTuple",
-    "load_config",
+    "TrimConfig",
+    "convert_to_trim_config",
+    "load_run_config",
+    "load_adam_config",
+    "load_generator_config",
 ]
 
 Parameter = Literal["Bg", "Bth"]
@@ -220,41 +222,13 @@ class GeneratorConfig(GenericConfig):
     trim: TrimConfig = attrs.field(factory=TrimConfig, converter=convert_to_trim_config)
 
 
-class ConfigTuple(NamedTuple):
-    """A NamedTuple with parameters ``run_config``, ``adam_config``, and
-    ``generator_config``, of types :class:`RunConfig`, :class:`AdamConfig`,
-    and :class:`GeneratorConfig`, respectively.
-
-    Args:
-        run_config (RunConfig): Settings for the train/test cycles.
-        adam_config (AdamConfig): Settings for the Adam optimizer.
-        generator_config (GeneratorConfig): Settings for the :class:`SampleGenerator`.
-    """
-
-    run_config: RunConfig
-    adam_config: AdamConfig
-    generator_config: GeneratorConfig
+def load_run_config(filepath: str | Path) -> RunConfig:
+    return RunConfig(**get_dict_from_file(filepath))
 
 
-def load_config(filename: str | Path) -> ConfigTuple:
-    """Get configuration settings from a YAML or JSON file (see examples) as a tuple
-    `(RunConfig, AdamConfig, GeneratorConfig)`.
+def load_adam_config(filepath: str | Path) -> AdamConfig:
+    return AdamConfig(**get_dict_from_file(filepath))
 
-    Args:
-        filename (str | Path): Path to a YAML or JSON file.
 
-    Returns:
-        :class:`ConfigTuple`: A tuple of `RunConfig`, `AdamConfig`, `GeneratorConfig`
-    """
-    config_dict = get_dict_from_file(filename)
-
-    run_dict: dict[str, Any] = config_dict.get("run", dict())
-    run_config = RunConfig(**run_dict)
-
-    adam_dict: dict[str, Any] = config_dict.get("adam", dict())
-    adam_config = AdamConfig(**adam_dict)
-
-    generator_dict: dict[str, Any] = config_dict.get("generator", dict())
-    generator_config = GeneratorConfig(**generator_dict)
-
-    return ConfigTuple(run_config, adam_config, generator_config)
+def load_generator_config(filepath: str | Path) -> GeneratorConfig:
+    return GeneratorConfig(**get_dict_from_file(filepath))

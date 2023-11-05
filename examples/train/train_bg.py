@@ -9,10 +9,9 @@ from psst.models import Inception3
 def main():
     device = torch.device("cpu")
 
-    config = psst.load_config(sys.argv[1])
-    run_config = config.run_config
-    adam_config = config.adam_config
-    generator_config = config.generator_config
+    run_config = psst.load_run_config(sys.argv[1])
+    adam_config = psst.load_adam_config(sys.argv[2])
+    generator_config = psst.load_generator_config(sys.argv[3])
 
     checkpoint_file = None if len(sys.argv) < 3 else sys.argv[2]
 
