@@ -12,7 +12,7 @@ __all__ = ["GridTensor", "NormedTensor"]
 
 class GridTensor(torch.Tensor):
     min_value: float = 0.0
-    max_value: float = 0.0
+    max_value: float = 1.0
     log_scale: bool = False
 
     @classmethod
@@ -58,13 +58,13 @@ class GridTensor(torch.Tensor):
 
 class NormedTensor(torch.Tensor):
     min_value: float = 0.0
-    max_value: float = 0.0
+    max_value: float = 1.0
     log_scale: bool = False
     generator: Optional[torch.Generator] = None
     is_normalized: bool = False
-    difference: float = 0.0
+    difference: float = 1.0
     norm_min = 0.0
-    norm_max = 0.0
+    norm_max = 1.0
 
     def normalize(self) -> "NormedTensor":
         if self.is_normalized:
@@ -115,8 +115,12 @@ class NormedTensor(torch.Tensor):
 
         instance.min_value = min_value
         instance.max_value = max_value
-        instance.norm_min = log10(min_value) if log_scale else min_value
-        instance.norm_max = log10(max_value) if log_scale else max_value
+        if log_scale:
+            instance.norm_min = log10(min_value)
+            instance.norm_max = log10(max_value)
+        else:
+            instance.norm_min = min_value
+            instance.norm_max = max_value
 
         instance.log_scale = log_scale
         instance.difference = instance.max_value - instance.min_value
