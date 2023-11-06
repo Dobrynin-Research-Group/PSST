@@ -4,8 +4,7 @@ from pathlib import Path
 
 import torch
 
-from psst.samplegenerator import SampleGenerator
-from psst.save import Checkpoint
+from psst import Parameter, SampleGenerator, Checkpoint
 
 
 __all__ = ["train", "validate", "train_model"]
@@ -46,7 +45,7 @@ def train(
         )
         num_samples = num_batches * batch_size
 
-    choice = 1 if generator.parameter == "Bth" else 0
+    choice = 1 if generator.parameter is Parameter.bth else 0
     avg_loss: float = 0.0
 
     model.train()
@@ -99,7 +98,7 @@ def validate(
         )
         num_samples = num_batches * batch_size
 
-    choice = 0 if generator.parameter == "Bg" else 1
+    choice = 1 if generator.parameter is Parameter.bth else 0
     avg_loss: float = 0.0
 
     model.eval()
@@ -126,7 +125,7 @@ def train_model(
     num_epochs: int,
     num_samples_train: int,
     num_samples_test: int,
-    checkpoint_filename: str | Path,
+    checkpoint_file: str | Path,
     checkpoint_frequency: int,
 ):
     """Run the model through `num_epochs` train/test cycles.
@@ -165,4 +164,4 @@ def train_model(
             chkpt = Checkpoint(epoch, model.state_dict(), optimizer.state_dict())
 
     if checkpoint_frequency != 0:
-        torch.save(chkpt, checkpoint_filename)
+        torch.save(chkpt, checkpoint_file)

@@ -10,7 +10,7 @@ from functools import singledispatch
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import attrs
 import attrs.validators as valid
@@ -22,12 +22,17 @@ from psst import Range, convert_to_range
 __all__ = [
     "RunConfig",
     "AdamConfig",
+    "OptimConfig",
     "GeneratorConfig",
     "TrimConfig",
     "convert_to_trim_config",
-    "load_run_config",
-    "load_adam_config",
-    "load_generator_config",
+]
+
+
+is_two_positive_floats = [
+    valid.max_len(2),
+    valid.min_len(2),
+    valid.deep_iterable([valid.gt(0.0), valid.instance_of(float)]),
 ]
 
 
@@ -77,6 +82,27 @@ class GenericConfig:
     def __getitem__(self, key: str):
         return getattr(self, key)
 
+    @classmethod
+    def from_file(cls, filepath: str | Path):
+        return cls(**get_dict_from_file(filepath))
+
+    def _validate_filepath(self, filepath: str | Path, overwrite: bool = False) -> Path:
+        if isinstance(filepath, str):
+            filepath = Path(filepath)
+
+        if filepath.is_file() and not overwrite:
+            raise FileExistsError(
+                "File already exists; please pass `overwrite=True` to overwrite:"
+                f" {filepath}"
+            )
+
+        if not filepath.parent.is_dir():
+            raise FileNotFoundError(
+                f"Could not locate parent directory: {filepath.parent}"
+            )
+
+        return filepath
+
 
 @attrs.define(kw_only=True)
 class RunConfig(GenericConfig):
@@ -100,6 +126,12 @@ class RunConfig(GenericConfig):
     checkpoint_frequency: int = attrs.field(default=0, converter=int)
     checkpoint_filename: str = attrs.field(default="chk.pt", converter=str)
 
+    def to_yaml(self, filepath: str | Path, overwrite: bool = False):
+        super()._validate_filepath(filepath, overwrite)
+
+        yaml = YAML(typ="safe", pure=True)
+        yaml.dump(filepath, **self)
+
 
 @attrs.define(kw_only=True)
 class AdamConfig(GenericConfig):
@@ -113,11 +145,7 @@ class AdamConfig(GenericConfig):
     )
     betas: tuple[float, float] = attrs.field(
         default=(0.9, 0.999),
-        validator=[
-            valid.deep_iterable([valid.gt(0), valid.lt(1)]),
-            valid.min_len(2),
-            valid.max_len(2),
-        ],
+        validator=is_two_positive_floats,
     )
     eps: float = attrs.field(
         default=1e-8, converter=float, validator=[valid.gt(0), valid.lt(1)]
@@ -136,6 +164,31 @@ class AdamConfig(GenericConfig):
         default=None, converter=conv.optional(conv.to_bool)
     )
 
+    def to_yaml(self, filepath: str | Path, overwrite: bool = False):
+        super()._validate_filepath(filepath, overwrite)
+
+        yaml = YAML(typ="safe", pure=True)
+        yaml.dump(filepath, **self)
+
+
+@attrs.define(kw_only=True)
+class OptimConfig(GenericConfig):
+    num_trials: int = attrs.field(validator=[valid.instance_of(int), valid.gt(0)])
+    num_epochs: int = attrs.field(validator=[valid.instance_of(int), valid.gt(0)])
+    num_samples_per_epoch: int = attrs.field(
+        validator=[valid.instance_of(int), valid.gt(0)]
+    )
+    lr: tuple[float, float] = attrs.field(validator=is_two_positive_floats)
+    beta_1: tuple[float, float] = attrs.field(validator=is_two_positive_floats)
+    beta_2: tuple[float, float] = attrs.field(validator=is_two_positive_floats)
+    eps: tuple[float, float] = attrs.field(validator=is_two_positive_floats)
+
+    def to_yaml(self, filepath: str | Path, overwrite: bool = False):
+        super()._validate_filepath(filepath, overwrite)
+
+        yaml = YAML(typ="safe", pure=True)
+        yaml.dump(filepath, **self)
+
 
 @attrs.define(kw_only=True)
 class TrimConfig:
@@ -149,8 +202,8 @@ def convert_to_trim_config(d) -> TrimConfig:
     raise NotImplementedError(f"Cannot convert object of type {type(d)} to TrimConfig")
 
 
-@convert_to_trim_config.register
-def _(d: dict):
+@convert_to_trim_config.register(dict)
+def _(d):
     return TrimConfig(**d)
 
 
@@ -213,14 +266,17 @@ class GeneratorConfig(GenericConfig):
     noise_factor: float = attrs.field(default=0.05, converter=float)
     trim: TrimConfig = attrs.field(factory=TrimConfig, converter=convert_to_trim_config)
 
+    def to_yaml(self, filepath: str | Path, overwrite: bool = False):
+        super()._validate_filepath(filepath, overwrite)
 
-def load_run_config(filepath: str | Path) -> RunConfig:
-    return RunConfig(**get_dict_from_file(filepath))
+        d = dict(self)
+        d["phi_range"] = attrs.asdict(d["phi_range"])
+        d["nw_range"] = attrs.asdict(d["nw_range"])
+        d["visc_range"] = attrs.asdict(d["visc_range"])
+        d["bg_range"] = attrs.asdict(d["bg_range"])
+        d["bth_range"] = attrs.asdict(d["bth_range"])
+        d["pe_range"] = attrs.asdict(d["pe_range"])
+        d["trim"] = attrs.asdict(d["trim"])
 
-
-def load_adam_config(filepath: str | Path) -> AdamConfig:
-    return AdamConfig(**get_dict_from_file(filepath))
-
-
-def load_generator_config(filepath: str | Path) -> GeneratorConfig:
-    return GeneratorConfig(**get_dict_from_file(filepath))
+        yaml = YAML(typ="safe", pure=True)
+        yaml.dump(filepath, d)
