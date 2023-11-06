@@ -1,5 +1,0 @@
----
-lr: 0.001
-betas: [0.7, 0.9]
-eps: 1.e-9
-weight_decay: 0.0

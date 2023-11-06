@@ -2,5 +2,4 @@
 num_epochs: 3
 num_samples_train: 512000
 num_samples_test: 219500
-checkpoint_filename: "bth_train.pt"
 checkpoint_frequency: 0
