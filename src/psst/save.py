@@ -1,14 +1,10 @@
 from enum import Enum
-from pathlib import Path
 from typing import NamedTuple
 
-import torch
+__all__ = ["ModelName", "Checkpoint"]
 
 
-__all__ = ["ModelType", "Checkpoint", "FinalState"]
-
-
-class ModelType(str, Enum):
+class ModelName(str, Enum):
     Inception3 = "Inception3"
     Vgg13 = "Vgg13"
 
@@ -22,7 +18,8 @@ class Checkpoint(NamedTuple):
     ```
 
     Args:
-        epoch (int): How many cycles of training have been completed.
+        epoch (int): The number of completed training cycles.
+        model_name (ModelName): The name of the neural network used.
         model_state (dict): The state of the neural network model as given by
           ``torch.nn.Module.state_dict()``.
         optimizer_state (dict): The state of the training optimizer as given by
@@ -30,31 +27,6 @@ class Checkpoint(NamedTuple):
     """
 
     epoch: int
+    model_name: ModelName
     model_state: dict
     optimizer_state: dict
-
-
-class FinalState(NamedTuple):
-    model_type: ModelType
-
-    bg_model_state: dict
-    bth_model_state: dict
-
-    def save(self, filepath: Path | str) -> None:
-        torch.save(
-            {
-                "model_type": self.model_type,
-                "bg_model_state": self.bg_model_state,
-                "bth_model_state": self.bth_model_state,
-            },
-            filepath,
-        )
-
-    @classmethod
-    def load(cls, filepath: Path | str) -> "FinalState":
-        obj = torch.load(filepath)
-        return cls(
-            obj["model_state"],
-            obj["bg_model_state"],
-            obj["bth_model_state"],
-        )
