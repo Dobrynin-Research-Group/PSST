@@ -6,3 +6,4 @@ build-test
 build
 .pytest_cache
 .vscode
+*.pt
