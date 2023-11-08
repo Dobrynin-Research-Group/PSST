@@ -5,6 +5,8 @@ from torch.nn import Conv2d, Flatten, Linear, MaxPool2d, Module, ReLU, Sequentia
 class Vgg13(Module):
     """Visualization Geometry Group neural network for training on 2D images."""
 
+    __name__ = "Vgg13"
+
     def __init__(self):
         super().__init__()
 

@@ -13,8 +13,8 @@ from torch.nn import (
 
 
 class BasicConv2d(Module):
-    """Custom Conv2d Module with :code:`bias=False` by default.
-    """
+    """Custom Conv2d Module with :code:`bias=False` by default."""
+
     def __init__(self, in_channels: int, out_channels: int, **kwargs):
         super().__init__()
 
@@ -26,7 +26,7 @@ class BasicConv2d(Module):
 
 
 class Conv2dTo2Channels(Module):
-    """Custom Module that creates two channels, one each from a pass of a 
+    """Custom Module that creates two channels, one each from a pass of a
     :class:`BasicConv2d` with orthogonal, asymmetric kernels. Equivalent to:
 
     Example:
@@ -41,13 +41,14 @@ class Conv2dTo2Channels(Module):
         >>> model2 = BasicConv2d(4, 4, kernel_size=(3, 1), padding=(1, 0))
         >>> y = torch.cat((model1(x), model2(x)), 1)
     """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
         *,
         kernel_size: tuple[int, int],
-        padding: tuple[int, int]
+        padding: tuple[int, int],
     ):
         super().__init__()
 
@@ -66,12 +67,13 @@ class Conv2dTo2Channels(Module):
 
 
 class InceptionA(Module):
-    """An inception block containing four branches: 
+    """An inception block containing four branches:
     1. kernel_size=1
     2. kernel_size=1 -> kernel_size=5
     3. kernel_size=1 -> kernel_size=3 -> kernel_size=3
     4. AvgPool2d(kernel_size=3) -> kernel_size=1
     """
+
     def __init__(self, in_channels: int, pool_features: int):
         super().__init__()
 
@@ -103,11 +105,12 @@ class InceptionA(Module):
 
 
 class InceptionB(Module):
-    """An inception block containing three branches: 
+    """An inception block containing three branches:
     1. kernel_size=3
     2. kernel_size=1 -> kernel_size=3 -> kernel_size=3
     3. AvgPool2d(kernel_size=3)
     """
+
     def __init__(self, in_channels: int):
         super().__init__()
 
@@ -124,7 +127,7 @@ class InceptionB(Module):
 
 
 class InceptionC(Module):
-    """An inception block containing four branches: 
+    """An inception block containing four branches:
     1. kernel_size=1
     2. kernel_size=1 -> kernel_size=(1, 7) -> kernel_size=(7, 1)
     3. kernel_size=1 -> kernel_size=(7, 1) -> kernel_size=(1, 7)
@@ -132,6 +135,7 @@ class InceptionC(Module):
     3. kernel_size=1 -> kernel_size=3 -> kernel_size=3
     4. AvgPool2d(kernel_size=3) -> kernel_size=1
     """
+
     def __init__(self, in_channels: int, channels_7x7: int):
         super().__init__()
 
@@ -166,12 +170,13 @@ class InceptionC(Module):
 
 
 class InceptionD(Module):
-    """An inception block containing three branches: 
+    """An inception block containing three branches:
     1. kernel_size=1 -> kernel_size=3
     2. kernel_size=1 -> kernel_size=(1, 7) -> kernel_size=(7, 1)
        -> kernel_size=3
     3. AvgPool2d(kernel_size=3)
     """
+
     def __init__(self, in_channels: int):
         super().__init__()
 
@@ -192,12 +197,13 @@ class InceptionD(Module):
 
 
 class InceptionE(Module):
-    """An inception block containing four branches: 
+    """An inception block containing four branches:
     1. kernel_size=1
     2. kernel_size=1 -> Conv2dTo2Channels(kernel_size=(1, 3))
     3. kernel_size=1 -> kernel_size=3 -> Conv2dTo2Channels(kernel_size=(1, 3))
     4. AvgPool2d(kernel_size=3) -> kernel_size=1
     """
+
     def __init__(self, in_channels: int):
         super().__init__()
 
@@ -229,8 +235,10 @@ class InceptionE(Module):
 
 
 class Inception3(Module):
-    """Inception-block-based neural network for training on 2D images.
-    """
+    """Inception-block-based neural network for training on 2D images."""
+
+    __name__ = "Inception3"
+
     def __init__(self):
         super().__init__()
 
