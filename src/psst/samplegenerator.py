@@ -4,7 +4,6 @@ degree of polymerization of the polymer solution from the samples of molecular
 parameters, and yield the normalized values (between 0 and 1).
 """
 from __future__ import annotations
-from enum import Enum
 import logging
 from typing import Optional
 from warnings import warn
@@ -81,6 +80,7 @@ class SampleGenerator:
     def __init__(
         self,
         parameter: Parameter,
+        range_config: psst.RangeConfig,
         gen_config: psst.GeneratorConfig,
         *,
         device: torch.device = torch.device("cpu"),
@@ -90,16 +90,25 @@ class SampleGenerator:
         self._log.info("Initializing SampleGenerator")
         self._log.debug("SampleGenerator: device = %s", str(device))
 
-        self.cfg = gen_config
-
         self.device = device
         self.generator = generator
 
-        self.batch_size = self.cfg.batch_size
         self.parameter = parameter
+        self.batch_size = gen_config.batch_size
+        self.noise_factor = gen_config.noise_factor
+        self.num_nw_choices = gen_config.num_nw_choices
+        self.num_nw_to_select = gen_config.num_nw_to_select
+        self.num_phi_to_select = gen_config.num_phi_to_select
+
+        self.phi_range = range_config.phi_range
+        self.nw_range = range_config.nw_range
+        self.visc_range = range_config.visc_range
+        self.bg_range = range_config.bg_range
+        self.bth_range = range_config.bth_range
+        self.pe_range = range_config.pe_range
 
         self._validate_args()
-        if self.cfg.noise_factor == 0:
+        if self.noise_factor == 0:
             self._add_noise = self._noop
         else:
             self._add_noise = self._add_noise_default
@@ -118,34 +127,34 @@ class SampleGenerator:
             raise TypeError("Argument `parameter` must be of type ``psst.Parameter``.")
 
         try:
-            self.cfg.batch_size = int(self.cfg.batch_size)
+            self.batch_size = int(self.batch_size)
         except ValueError:
             raise TypeError(
                 "Argument `batch_size` must be an int (or convertable to an int)"
             )
-        if self.cfg.batch_size <= 0:
+        if self.batch_size <= 0:
             raise ValueError("Argument `batch_size` must be positive")
 
-        if not isinstance(self.cfg.phi_range, psst.Range):
+        if not isinstance(self.phi_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
-        if not isinstance(self.cfg.nw_range, psst.Range):
+        if not isinstance(self.nw_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
-        if not isinstance(self.cfg.visc_range, psst.Range):
+        if not isinstance(self.visc_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
-        if not isinstance(self.cfg.bg_range, psst.Range):
+        if not isinstance(self.bg_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
-        if not isinstance(self.cfg.bth_range, psst.Range):
+        if not isinstance(self.bth_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
-        if not isinstance(self.cfg.pe_range, psst.Range):
+        if not isinstance(self.pe_range, psst.Range):
             raise TypeError("Must be of type psst.Range")
 
         try:
-            self.cfg.noise_factor = float(self.cfg.noise_factor)
+            self.noise_factor = float(self.noise_factor)
         except ValueError:
             raise TypeError(
                 "Argument `noise_factor` must be a float (or convertable to a float)"
             )
-        if abs(self.cfg.noise_factor) >= 1.0:
+        if abs(self.noise_factor) >= 1.0:
             warn(
                 "Absolute value of parameter `noise_factor` is 1 or greater."
                 " This may result in negative values of specfic viscosity."
@@ -170,14 +179,12 @@ class SampleGenerator:
 
     def _init_grid_tensors(self):
         self._phi = psst.GridTensor.create_from_range(
-            self.cfg.phi_range, device=self.device
+            self.phi_range, device=self.device
         )
         self._phi.resize_(1, -1, 1)
         self._log.debug("Initialized self._phi with size %s", str(self._phi.shape))
 
-        self._nw = psst.GridTensor.create_from_range(
-            self.cfg.nw_range, device=self.device
-        )
+        self._nw = psst.GridTensor.create_from_range(self.nw_range, device=self.device)
         self._nw.resize_(1, 1, -1)
         self._log.debug("Initialized self._nw with size %s", str(self._nw.shape))
 
@@ -192,25 +199,25 @@ class SampleGenerator:
             self._log.debug("Initialized Bth-specific members")
 
         reduced_visc_range = Range(
-            self.cfg.visc_range.min_value / self._denominator.max().item(),
-            self.cfg.visc_range.max_value / self._denominator.min().item(),
-            log_scale=self.cfg.visc_range.log_scale,
+            self.visc_range.min_value / self._denominator.max().item(),
+            self.visc_range.max_value / self._denominator.min().item(),
+            log_scale=self.visc_range.log_scale,
         )
         self._visc = psst.NormedTensor.create_from_range(
             range=reduced_visc_range,
-            shape=(self.cfg.batch_size, self._phi.shape[1], self._nw.shape[2]),
+            shape=(self.batch_size, self._phi.shape[1], self._nw.shape[2]),
             device=self.device,
         )
         self._log.debug("Initialized self._visc with size %s", str(self._visc.shape))
 
         self._bg = psst.NormedTensor.create_from_range(
-            self.cfg.bg_range, device=self.device, generator=self.generator
+            self.bg_range, device=self.device, generator=self.generator
         )
         self._bth = psst.NormedTensor.create_from_range(
-            self.cfg.bth_range, device=self.device, generator=self.generator
+            self.bth_range, device=self.device, generator=self.generator
         )
         self._pe = psst.NormedTensor.create_from_range(
-            self.cfg.pe_range, device=self.device, generator=self.generator
+            self.pe_range, device=self.device, generator=self.generator
         )
         self._log.debug(
             "Initialized self._bg, self._bth, self._pe each with size %s",
@@ -278,9 +285,7 @@ class SampleGenerator:
         self._log.debug("Normalized results")
 
         return (
-            self._visc.view(
-                self.cfg.batch_size, 1, self._phi.size(1), self._nw.size(2)
-            ),
+            self._visc.view(self.batch_size, 1, self._phi.size(1), self._nw.size(2)),
             self._bg.view(-1),
             self._bth.view(-1),
             self._pe.view(-1),
@@ -295,7 +300,7 @@ class SampleGenerator:
     ):
         is_combo = torch.randint(
             2,
-            size=(self.cfg.batch_size,),
+            size=(self.batch_size,),
             device=self.device,
             generator=self.generator,
             dtype=torch.bool,
@@ -350,9 +355,7 @@ class SampleGenerator:
         )
 
     def _add_noise_default(self, visc: torch.Tensor):
-        visc *= 1 + self.cfg.noise_factor * self._noise.normal_(
-            generator=self.generator
-        )
+        visc *= 1 + self.noise_factor * self._noise.normal_(generator=self.generator)
 
     def _noop(self, visc: torch.Tensor):
         pass
