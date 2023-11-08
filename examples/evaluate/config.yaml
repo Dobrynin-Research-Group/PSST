@@ -1,0 +1,10 @@
+---
+datafile: ../sample_data/data1.csv
+length: 2.92
+mass: 104.
+bg_model:
+  model_name: Inception3
+  filename: ../models/bg_model.pt
+bth_model:
+  model_name: Inception3
+  filename: ../models/bth_model.pt

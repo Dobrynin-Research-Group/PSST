@@ -1,56 +1,45 @@
-from functools import partial
-from pathlib import Path
+from argparse import ArgumentParser
 
-import numpy as np
 import torch
 
-from ...core.surface_generator import normalize
-from ...core.configuration import GeneratorConfig
+import psst
+import psst.evaluation as ev
 
-def exp_data_to_images(
-        infile: str | Path,
-        outfile: str | Path,
-        config: GeneratorConfig,
-        force: bool = False
-):
-    outfile = Path(outfile)
-    if not force and outfile.is_file():
-        return torch.load(outfile)
-    
-    infile = Path(infile)
-    data = np.loadtxt(infile, usecols=tuple(range(3, 10)), skiprows=1, delimiter=',')
-    systems: list[torch.Tensor] = list()
-    for group in np.unique(data[:, 0]):
-        systems.append(torch.as_tensor(data[data[:, 0] == group][:, 1:]))
-    
-    Bg = torch.zeros(len(systems))
-    Bth = torch.zeros_like(Bg)
-    Pe = torch.zeros_like(Bg)
-    phi = config.phi_range.flatten()
-    nw = config.nw_range.flatten()
-    visc = torch.zeros((len(systems), phi.shape[0], nw.shape[0]))
 
-    phi_bins = torch.linspace(0, 1, phi.shape[0])
-    nw_bins = torch.linspace(0, 1, nw.shape[0])
+def parse_args() -> tuple[ev.EvaluationConfig, psst.RangeConfig, torch.device]:
+    parser = ArgumentParser()
+    parser.add_argument(
+        "configuration_file",
+        help="File location of the configuration file for this evaluation.",
+    )
+    parser.add_argument(
+        "-r",
+        required=True,
+        help="",
+    )
+    parser.add_argument(
+        "-d",
+        help="PyTorch device to use for inferencing (default: use the CPU).s",
+    )
 
-    def get_indices(raw_data: torch.Tensor, min: float, max: float, bins: torch.Tensor):
-        norm_values = normalize(raw_data, min, max, log_scale=True)
-        indices = torch.argmin(torch.abs(norm_values.reshape(-1, 1) - bins.reshape(1, -1)), dim=1)
-        return indices
-    
-    get_phi_indices = partial(get_indices, min=phi.min(), max=phi.max(), bins=phi_bins)
-    get_nw_indices = partial(get_indices, min=nw.min(), max=nw.max(), bins=nw_bins)
+    args = parser.parse_args()
 
-    for i, system in enumerate(systems):
-        Bg[i] = system[0, 0]
-        Bth[i] = system[0, 1]
-        Pe[i] = system[0, 2]
+    eval_config = ev.EvaluationConfig.from_file(args.configuration_file)
 
-        phi_idx = get_phi_indices(system[:, 3])
-        nw_idx = get_nw_indices(system[:, 4])
+    range_config = psst.RangeConfig.from_file(args.r)
 
-        visc[i, phi_idx, nw_idx] = system[:, 5]
-    
-    torch.save((Bg, Bth, Pe, phi, nw, visc), infile.with_suffix(".pt"))
+    device = torch.device("cuda") if args.d else torch.device("cpu")
 
-    return Bg, Bth, Pe, phi, nw, visc
+    return eval_config, range_config, device
+
+
+def main():
+    eval_config, range_config, device = parse_args()
+
+    result = psst.evaluate_dataset(range_config, eval_config, device)
+
+    return result
+
+
+if __name__ == "__main__":
+    main()
