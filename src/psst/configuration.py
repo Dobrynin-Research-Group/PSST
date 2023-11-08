@@ -195,9 +195,13 @@ class GeneratorConfig(GenericConfig):
     batch_size: int = attrs.field(converter=int, validator=valid.gt(0))
     noise_factor: float = attrs.field(default=0.05, converter=float)
 
-    num_nw_choices: int = 48
-    num_nw_to_select: int = 12
-    num_phi_to_select: int = 65
+    num_nw_choices: int = attrs.field(default=48, converter=int, validator=valid.gt(0))
+    num_nw_to_select: int = attrs.field(
+        default=12, converter=int, validator=valid.gt(0)
+    )
+    num_phi_to_select: int = attrs.field(
+        default=65, converter=int, validator=valid.gt(0)
+    )
 
     def to_yaml(self, filepath: str | Path, overwrite: bool = False):
         super()._validate_filepath(filepath, overwrite)

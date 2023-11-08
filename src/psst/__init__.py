@@ -4,4 +4,3 @@ from .tensors import *
 from .save import *
 from .configuration import *
 from .samplegenerator import *
-from .training import *
