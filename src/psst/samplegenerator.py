@@ -175,17 +175,20 @@ class SampleGenerator:
         self.generator.seed()
         self._log.debug("Initialized random number generator")
 
-        self._noise = torch.zeros_like(self._visc)
+        assert self.phi_range.shape is not None
+        assert self.nw_range.shape is not None
+
+        self._noise = torch.zeros(
+            (self.batch_size, self.phi_range.shape, self.nw_range.shape)
+        )
 
     def _init_grid_tensors(self):
-        self._phi = psst.GridTensor.create_from_range(
-            self.phi_range, device=self.device
-        )
-        self._phi.resize_(1, -1, 1)
+        self._phi = self.phi_range.create_grid().to(device=self.device)
+        self._phi = self._phi.reshape(1, -1, 1)
         self._log.debug("Initialized self._phi with size %s", str(self._phi.shape))
 
-        self._nw = psst.GridTensor.create_from_range(self.nw_range, device=self.device)
-        self._nw.resize_(1, 1, -1)
+        self._nw = self.nw_range.create_grid().to(device=self.device)
+        self._nw = self._nw.reshape(1, 1, -1)
         self._log.debug("Initialized self._nw with size %s", str(self._nw.shape))
 
     def _init_normed_tensors(self):
@@ -198,27 +201,19 @@ class SampleGenerator:
             self._denominator = self._nw * self._phi**2
             self._log.debug("Initialized Bth-specific members")
 
-        reduced_visc_range = Range(
+        self.reduced_visc_range = Range(
             self.visc_range.min_value / self._denominator.max().item(),
             self.visc_range.max_value / self._denominator.min().item(),
             log_scale=self.visc_range.log_scale,
         )
-        self._visc = psst.NormedTensor.create_from_range(
-            range=reduced_visc_range,
-            shape=(self.batch_size, self._phi.shape[1], self._nw.shape[2]),
-            device=self.device,
+        self._visc = torch.zeros(
+            self.batch_size, self._phi.shape[1], self._nw.shape[2], device=self.device
         )
         self._log.debug("Initialized self._visc with size %s", str(self._visc.shape))
 
-        self._bg = psst.NormedTensor.create_from_range(
-            self.bg_range, device=self.device, generator=self.generator
-        )
-        self._bth = psst.NormedTensor.create_from_range(
-            self.bth_range, device=self.device, generator=self.generator
-        )
-        self._pe = psst.NormedTensor.create_from_range(
-            self.pe_range, device=self.device, generator=self.generator
-        )
+        self._bg = torch.zeros(self.batch_size, 1, 1)
+        self._bth = torch.zeros(self.batch_size, 1, 1)
+        self._pe = torch.zeros(self.batch_size, 1, 1)
         self._log.debug(
             "Initialized self._bg, self._bth, self._pe each with size %s",
             str(self._bg.shape),
@@ -246,11 +241,7 @@ class SampleGenerator:
         self._log.info("Starting %d iterations", self._num_batches)
         return self
 
-    def __next__(
-        self,
-    ) -> tuple[
-        psst.NormedTensor, psst.NormedTensor, psst.NormedTensor, psst.NormedTensor
-    ]:
+    def __next__(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if self._num_batches is None:
             raise SyntaxError(
                 "SampleGenerator object must be called with an argument"
@@ -265,22 +256,22 @@ class SampleGenerator:
         self._index += 1
         self._log.debug("Generating batch %6d/%d", self._index, self._num_batches)
 
-        self._bg.generate()
-        self._bth.generate()
-        self._pe.generate()
+        self.bg_range.generate(self._bg)
+        self.bth_range.generate(self._bth)
+        self.pe_range.generate(self._pe)
         self._log.debug("Sampled values for Bg, Bth, Pe")
 
         self._compute_visc(self._bg, self._bth, self._pe, self._visc)
 
-        self._trim(self._visc)
         self._add_noise(self._visc)
         self._visc.div_(self._denominator)
         self._log.debug("Added noise and reduced viscosity")
 
-        self._bg.normalize()
-        self._bth.normalize()
-        self._pe.normalize()
-        self._visc.normalize()
+        self.bg_range.normalize(self._bg)
+        self.bth_range.normalize(self._bth)
+        self.pe_range.normalize(self._pe)
+        self.reduced_visc_range.normalize(self._visc)
+        self._trim(self._visc)
 
         self._log.debug("Normalized results")
 
@@ -289,7 +280,7 @@ class SampleGenerator:
             self._bg.view(-1),
             self._bth.view(-1),
             self._pe.view(-1),
-        )  # type: ignore
+        )
 
     def _compute_visc(
         self,

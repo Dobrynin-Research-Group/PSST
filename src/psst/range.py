@@ -1,9 +1,11 @@
 from functools import singledispatch
+from math import log10
 from typing import Optional
 
 import attrs
 import attrs.converters as conv
 import attrs.validators as valid
+import torch
 
 
 __all__ = ["convert_to_range", "Range"]
@@ -51,6 +53,40 @@ class Range:
     log_scale: bool = attrs.field(
         default=False, converter=bool, validator=_check_log_scale
     )
+
+    def normalize(self, tensor: torch.Tensor):
+        if self.log_scale:
+            tensor.log10_()
+            tensor -= log10(self.min_value)
+            tensor /= log10(self.max_value / self.min_value)
+        else:
+            tensor -= self.min_value
+            tensor /= self.max_value - self.min_value
+        tensor.clamp_(0.0, 1.0)
+
+    def unnormalize(self, tensor: torch.Tensor):
+        if self.log_scale:
+            tensor *= log10(self.max_value / self.min_value)
+            tensor += log10(self.min_value)
+            torch.pow(10, tensor, out=tensor)
+        else:
+            tensor *= self.max_value - self.min_value
+            tensor += self.min_value
+
+    def generate(self, tensor: torch.Tensor, generator: torch.Generator | None = None):
+        tensor.uniform_(self.min_value, self.max_value, generator=generator)
+
+    def create_grid(self, shape: int | None = None):
+        if shape is None and self.shape is not None:
+            shape = self.shape
+        elif shape is None:
+            raise ValueError(
+                "Both the shape attribute and the given shape parameter are None"
+            )
+
+        if self.log_scale:
+            return torch.logspace(log10(self.min_value), log10(self.max_value), shape)
+        return torch.linspace(self.min_value, self.max_value, shape)
 
 
 @singledispatch
