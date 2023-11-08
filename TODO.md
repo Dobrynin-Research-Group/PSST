@@ -1,5 +1,6 @@
 # To-Do
 
+- Replace attrs.assoc with attrs.evolve
 - Implementation
   - [ ] Add random noise to SampleGenerator (add settings for the noise?)
   - [ ] Add trimming to generator settings
