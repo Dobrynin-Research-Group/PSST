@@ -1,5 +1,4 @@
 ---
-batch_size: 64
 phi_range:
   min_value: 3.e-5
   max_value: 0.02
@@ -13,6 +12,7 @@ nw_range:
 visc_range:
   min_value: 1
   max_value: 1.e+6
+  log_scale: True
 bg_range:
   min_value: 0.36
   max_value: 1.55
@@ -22,8 +22,3 @@ bth_range:
 pe_range:
   min_value: 3.2
   max_value: 13.5
-noise_factor: 0.05
-trim:
-  num_nw_choices: 48
-  num_nw_to_select: 12
-  num_phi_to_select: 65
