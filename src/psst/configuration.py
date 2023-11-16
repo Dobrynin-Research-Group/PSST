@@ -19,6 +19,10 @@ from ruamel.yaml import YAML
 from psst import Range, convert_to_range
 
 __all__ = [
+    "validate_filepath",
+    "get_dict_from_file",
+    "write_dict_to_file",
+    "ModelConfig",
     "RangeConfig",
     "AdamConfig",
     "GeneratorConfig",
@@ -31,6 +35,81 @@ is_two_positive_floats = [
 ]
 
 
+def validate_filepath(filepath: str | Path, *, exists: bool | None = False) -> Path:
+    if isinstance(filepath, str):
+        filepath = Path(filepath)
+
+    if not filepath.parent.is_dir():
+        FileNotFoundError(f"Could not locate parent directory: {filepath.parent}")
+
+    if exists is not None:
+        if exists and not filepath.exists():
+            raise FileNotFoundError(f"Could not locate file: {filepath}")
+        elif not exists and filepath.exists():
+            raise FileExistsError(f"File already exists: {filepath}")
+
+    return filepath
+
+
+def get_dict_from_file(filepath: str | Path) -> dict[str, Any]:
+    """Reads a YAML or JSON file and returns the contents as a dictionary.
+
+    Args:
+        filepath (str | Path): The YAML or JSON file to interpret.
+
+    Raises:
+        ValueError: If the extension in the filename is not one of ".yaml", ".yml", or
+        ".json".
+
+    Returns:
+        dict[str]: The contents of the file in dictionary form.
+    """
+    log = logging.getLogger("psst.main")
+
+    filepath = validate_filepath(filepath, exists=True)
+
+    ext = filepath.suffix
+    if ext == ".json":
+        load = json.load
+    elif ext in [".yaml", ".yml"]:
+        yaml = YAML(typ="safe", pure=True)
+        load = yaml.load
+    else:
+        raise ValueError(
+            f"Invalid file extension for config file: {ext}\n"
+            "Please use .yaml or .json."
+        )
+
+    log.info("Loading configuration from %s", str(filepath))
+
+    with open(filepath, "r") as f:
+        config_dict = dict(load(f))
+        log.debug("Loaded configuration: %s", str(config_dict))
+
+    return config_dict
+
+
+def write_dict_to_file(
+    d: dict[str, Any], filepath: str | Path, overwrite: bool = False
+):
+    filepath = validate_filepath(filepath, exists=(None if overwrite else False))
+
+    ext = filepath.suffix
+    if ext == ".json":
+        dump = json.dump
+    elif ext in [".yaml", ".yml"]:
+        yaml = YAML(typ="safe", pure=True)
+        dump = yaml.dump
+    else:
+        raise ValueError(
+            f"Invalid file extension for config file: {ext}\n"
+            "Please use .yaml or .json."
+        )
+
+    with open(filepath, "w") as out:
+        dump(d, out)
+
+
 class GenericConfig:
     def keys(self):
         return attrs.asdict(self).keys()
@@ -39,66 +118,60 @@ class GenericConfig:
         return getattr(self, key)
 
     @classmethod
+    def from_dict(cls, d: dict[str, Any]):
+        return cls(**d)
+
+    @classmethod
     def from_file(cls, filepath: str | Path):
-        cls._validate_filepath(filepath)
-        return cls(**cls._get_dict_from_file(filepath))
+        return cls.from_dict(get_dict_from_file(filepath))
 
-    @staticmethod
-    def _validate_filepath(filepath: str | Path, overwrite: bool = False) -> Path:
-        if isinstance(filepath, str):
-            filepath = Path(filepath)
+    def to_yaml(self, filepath: str | Path, overwrite: bool = False):
+        exists = None if overwrite else False
+        validate_filepath(filepath, exists=exists)
 
-        if filepath.is_file() and not overwrite:
-            raise FileExistsError(
-                "File already exists; please pass `overwrite=True` to overwrite:"
-                f" {filepath}"
-            )
+        yaml = YAML(typ="safe", pure=True)
+        yaml.dump(filepath, **self)
 
-        if not filepath.parent.is_dir():
-            raise FileNotFoundError(
-                f"Could not locate parent directory: {filepath.parent}"
-            )
 
-        return filepath
+@attrs.define(kw_only=True)
+class ModelConfig(GenericConfig):
+    bg_name: Optional[str] = None
+    bth_name: Optional[str] = None
+    bg_path: Optional[Path] = None
+    bth_path: Optional[Path] = None
 
-    @staticmethod
-    def _get_dict_from_file(filepath: str | Path) -> dict[str, Any]:
-        """Reads a YAML or JSON file and returns the contents as a dictionary.
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]):
+        if not isinstance(d, dict):
+            raise TypeError("Must supply dict to from_dict class method")
 
-        Args:
-            filepath (str | Path): The YAML or JSON file to interpret.
-
-        Raises:
-            ValueError: If the extension in the filename is not one of ".yaml", ".yml", or
-            ".json".
-
-        Returns:
-            dict[str]: The contents of the file in dictionary form.
-        """
-        log = logging.getLogger("psst.main")
-
-        if isinstance(filepath, str):
-            filepath = Path(filepath)
-
-        ext = filepath.suffix
-        if ext == ".json":
-            load = json.load
-        elif ext in [".yaml", ".yml"]:
-            yaml = YAML(typ="safe", pure=True)
-            load = yaml.load
+        if "bg" not in d:
+            bg_name = None
+            bg_path = None
+        elif isinstance(d["bg"], str):
+            bg_name = d["bg"]
+            bg_path = None
+        elif isinstance(d["bg"], dict):
+            bg_name = d["bg"]["name"]
+            bg_path = d["bg"].get("path", None)
         else:
-            raise ValueError(
-                f"Invalid file extension for config file: {ext}\n"
-                "Please use .yaml or .json."
-            )
+            raise TypeError("Key 'bg' must have value of type dict or string")
 
-        log.info("Loading configuration from %s", str(filepath))
+        if "bth" not in d:
+            bth_name = None
+            bth_path = None
+        elif isinstance(d["bth"], str):
+            bth_name = d["bth"]
+            bth_path = None
+        elif isinstance(d["bth"], dict):
+            bth_name = d["bth"]["name"]
+            bth_path = d["bth"].get("path", None)
+        else:
+            raise TypeError("Key 'bth' must have value of type dict or string")
 
-        with open(filepath, "r") as f:
-            config_dict = dict(load(f))
-            log.debug("Loaded configuration: %s", str(config_dict))
-
-        return config_dict
+        return cls(
+            bg_name=bg_name, bg_path=bg_path, bth_name=bth_name, bth_path=bth_path
+        )
 
 
 @attrs.define(kw_only=True)
@@ -160,7 +233,8 @@ class AdamConfig(GenericConfig):
     )
 
     def to_yaml(self, filepath: str | Path, overwrite: bool = False):
-        super()._validate_filepath(filepath, overwrite)
+        exists = None if overwrite else False
+        validate_filepath(filepath, exists=exists)
 
         yaml = YAML(typ="safe", pure=True)
         yaml.dump(filepath, **self)
@@ -202,26 +276,3 @@ class GeneratorConfig(GenericConfig):
     num_phi_to_select: int = attrs.field(
         default=65, converter=int, validator=valid.gt(0)
     )
-
-    def to_yaml(self, filepath: str | Path, overwrite: bool = False):
-        super()._validate_filepath(filepath, overwrite)
-
-        d = dict(self)
-        d["trim"] = {
-            self.num_nw_choices,
-            self.num_nw_to_select,
-            self.num_phi_to_select,
-        }
-
-        yaml = YAML(typ="safe", pure=True)
-        yaml.dump(filepath, d)
-
-    @classmethod
-    def from_file(cls, filepath: str | Path):
-        filepath = cls._validate_filepath(filepath)
-        d = cls._get_dict_from_file(filepath)
-        if "trim" in d:
-            t: dict[str, Any] = d.pop("trim")
-            for k, v in t.items():
-                d[k] = v
-        return cls(**d)
