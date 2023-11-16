@@ -1,4 +1,4 @@
-psst/.test_psst
+spsst/.test_psst
 __pycache__
 *.pyc
 psst.egg-info
@@ -7,3 +7,5 @@ build
 .pytest_cache
 .vscode
 *.pt
+*.csv
+scripts
