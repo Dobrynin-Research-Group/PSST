@@ -1,20 +1,26 @@
 from __future__ import annotations
+from pathlib import Path
+from warnings import warn
 
 import numpy as np
+import numpy.typing as npt
 import torch
 from scipy.optimize import curve_fit
 
 import psst
+from psst import models
 from .structures import *
-from .config import EvaluationConfig
+from .config import *
 
 
 __all__ = [
     "AVOGADRO_CONSTANT",
     "GOOD_EXP",
+    "process_data_to_grid",
     "transform_data",
     "fit_func",
     "evaluate_dataset",
+    "run",
 ]
 
 AVOGADRO_CONSTANT = 6.0221408e23
@@ -46,6 +52,7 @@ def reduce_data(
     return reduced_conc, degree_polym
 
 
+# TODO: allow for linear spacing on phi and nw
 def process_data_to_grid(
     phi_data: np.ndarray,
     nw_data: np.ndarray,
@@ -88,9 +95,12 @@ def process_data_to_grid(
         endpoint=True,
     )
     phi_bin_edges = np.zeros(log_phi_bins.shape[0] + 1)
-    phi_bin_edges[(0, -1)] = 10 ** log_phi_bins[(0, -1)]
+    phi_bin_edges[[0, -1]] = 10 ** log_phi_bins[[0, -1]]
     phi_bin_edges[1:-1] = 10 ** ((log_phi_bins[1:] + log_phi_bins[:-1]) / 2)
     phi_indices = np.digitize(phi_data, phi_bin_edges)
+    phi_indices = np.minimum(
+        phi_indices, np.zeros_like(phi_indices) + phi_indices.shape[0] - 1
+    )
 
     log_nw_bins: np.ndarray = np.linspace(
         np.log10(nw_range.min_value),
@@ -99,12 +109,14 @@ def process_data_to_grid(
         endpoint=True,
     )
     nw_bin_edges = np.zeros(log_nw_bins.shape[0] + 1)
-    nw_bin_edges[(0, -1)] = 10 ** log_nw_bins[(0, -1)]
+    nw_bin_edges[[0, -1]] = 10 ** log_nw_bins[[0, -1]]
     nw_bin_edges[1:-1] = 10 ** ((log_nw_bins[1:] + log_nw_bins[:-1]) / 2)
     nw_indices = np.digitize(nw_data, nw_bin_edges)
+    nw_indices = np.minimum(
+        nw_indices, np.zeros_like(nw_indices) + nw_indices.shape[0] - 1
+    )
 
-    data = np.stack((phi_indices, nw_indices, visc_data), axis=1)
-    for p, n, v in data:
+    for p, n, v in zip(phi_indices, nw_indices, visc_data):
         visc_out[p, n] += v
         counts[p, n] += 1
 
@@ -153,65 +165,54 @@ def transform_data(
     )
     bth_denom = nw_arr.reshape(1, -1) * phi_arr.reshape(-1, 1) ** 2
 
-    visc_normed_bg = (
-        psst.NormedTensor.create_from_numpy(
-            visc_arr / bg_denom,
-            min_value=visc_range.min_value / bg_denom.max(),
-            max_value=visc_range.max_value / bg_denom.min(),
-            log_scale=visc_range.log_scale,
-        )
-        .normalize()
-        .clamp_(0, 1)
+    visc_normed_bg_range = psst.Range(
+        min_value=visc_range.min_value / bg_denom.max(),
+        max_value=visc_range.max_value / bg_denom.min(),
+        log_scale=visc_range.log_scale,
     )
-    visc_normed_bth = (
-        psst.NormedTensor.create_from_numpy(
-            visc_arr / bth_denom,
-            min_value=visc_range.min_value / bth_denom.max(),
-            max_value=visc_range.max_value / bth_denom.min(),
-            log_scale=visc_range.log_scale,
-        )
-        .normalize()
-        .clamp_(0, 1)
+    visc_normed_bth_range = psst.Range(
+        min_value=visc_range.min_value / bth_denom.max(),
+        max_value=visc_range.max_value / bth_denom.min(),
+        log_scale=visc_range.log_scale,
     )
+
+    visc_normed_bg = torch.as_tensor(visc_arr / bg_denom, dtype=torch.float32)
+    visc_normed_bg_range.normalize(visc_normed_bg)
+    visc_normed_bg.clamp_(0, 1)
+
+    visc_normed_bth = torch.as_tensor(visc_arr / bth_denom, dtype=torch.float32)
+    visc_normed_bth_range.normalize(visc_normed_bth)
+    visc_normed_bth.clamp_(0, 1)
 
     return visc_normed_bg, visc_normed_bth
 
 
-def inference_models(
-    bg_model: torch.nn.Module,
-    bth_model: torch.nn.Module,
-    visc_normed_bg: torch.Tensor,
-    visc_normed_bth: torch.Tensor,
-    bg_range: psst.Range,
-    bth_range: psst.Range,
-) -> tuple[float, float]:
-    """Run the processed viscosity data through the models to gain the inference
-    results for :math:`B_g` and :math:`B_{th}`.
+def inference_model(
+    model: torch.nn.Module,
+    visc_normed: torch.Tensor,
+    b_range: psst.Range,
+    device: torch.device,
+) -> float:
+    """Run the processed viscosity data through a pre-trained model to gain the
+    inference results for either :math:`B_g` or :math:`B_{th}`.
 
     Args:
-        model_type (str): One of the pre-trained models from the keys of MODELS.
-        bg_state_dict (dict): The state dictionary of the bg model.
-        bth_state_dict (dict): The state dictionary of the bth model.
-        visc_normed_bg (psst.NormedTensor): The reduced and normalized viscosity data
-          for the bg model.
-        visc_normed_bth (psst.NormedTensor): The reduced and normalized viscosity data
-          for the bth model.
-        bg_range (psst.Range): The minimum and maximum of the bg parameter (used for
-          normalization and unnormalization).
-        bth_range (psst.Range): The minimum and maximum of the bg parameter (used for
-          normalization and unnormalization).
+        model (torch.nn.Module): The pre-trained deep learning model.
+        visc_normed (torch.Tensor): The normalized viscosity, appropriate to the
+          parameter to be evaluated.
+        b_range (psst.Range): The Range of the parameter to be evaluated.
+        device (torch.device): The device on which to run the inference.
 
     Returns:
-        tuple[float, float]: The inferred values of :math:`B_g` and :math:`B_{th}`,
-          respectively.
+        float: The inferred value of the parameter.
     """
-    bg = psst.NormedTensor.create_from_range(bg_range, (1,)).normalize()
-    bth = psst.NormedTensor.create_from_range(bth_range, (1,)).normalize()
+    pred = torch.zeros(1).to(device=device)
 
-    bg[:] = bg_model(visc_normed_bg)
-    bth[:] = bth_model(visc_normed_bth)
+    pred[:] = model(visc_normed.unsqueeze_(0))
 
-    return bg.unnormalize().item(), bth.unnormalize().item()
+    b_range.unnormalize(pred)
+
+    return pred.item()
 
 
 def fit_func(nw_over_g_lamda_g: np.ndarray, pe: float) -> np.ndarray:
@@ -219,10 +220,12 @@ def fit_func(nw_over_g_lamda_g: np.ndarray, pe: float) -> np.ndarray:
 
 
 def fit_func_jac(nw_over_g_lamda_g: np.ndarray, pe: float) -> np.ndarray:
+    pe_arr = np.array([pe]).reshape(1, 1)
+    nw_over_g_lamda_g = nw_over_g_lamda_g.reshape(-1, 1)
     return -2 * nw_over_g_lamda_g**2 / pe**3 - 4 * nw_over_g_lamda_g**3 / pe**5
 
 
-def combo_case(
+def fit_pe_combo(
     bg: float,
     bth: float,
     phi: np.ndarray,
@@ -248,7 +251,7 @@ def combo_case(
     return PeResult(popt[0], pcov[0][0])
 
 
-def bg_only_case(
+def fit_pe_bg_only(
     bg: float,
     phi: np.ndarray,
     nw: np.ndarray,
@@ -268,7 +271,7 @@ def bg_only_case(
     return PeResult(popt[0], pcov[0][0])
 
 
-def bth_only_case(
+def fit_pe_bth_only(
     bth: float,
     phi: np.ndarray,
     nw: np.ndarray,
@@ -291,36 +294,39 @@ def bth_only_case(
 
 
 def evaluate_dataset(
+    concentration_gpL: npt.NDArray,
+    mol_weight_kgpmol: npt.NDArray,
+    specific_viscosity: npt.NDArray,
+    repeat_unit: RepeatUnit,
+    bg_model: torch.nn.Module,
+    bth_model: torch.nn.Module,
     range_config: psst.RangeConfig,
-    eval_config: EvaluationConfig,
     device: torch.device = torch.device("cpu"),
+    overwrite: bool = False,
 ) -> InferenceResult:
     """Perform an evaluation of experimental data given one previously trained PyTorch
     model for each of the :math:`B_g` and :math:`B_{th}` parameters.
 
     Args:
-        bg_model (torch.nn.Module): A pretrained model for evaluating the :math:`B_g`
-          parameter.
-        bth_model (torch.nn.Module): A pretrained model for evaluating the :math:`B_th`
-          parameter.
-        generator_config (psst.GeneratorConfig): A set of configuration settings.
-          Only the Range attributes for phi, nw, visc, bg, and bth are used.
         concentration_gpL (np.ndarray): Experimental concentration data in units of
           grams per mole (1D numpy array).
         mol_weight_kgpmol (np.ndarray): Experimental molecular weight data in units of
           kilograms per mole (1D numpy array).
         specific_viscosity (np.ndarray): Experimental specific viscosity data in
           dimensionless units (1D numpy array).
-        repeat_unit_length_nm (float): The projection length of the monomer/repeat unit
-          in units of nanometers.
-        repeat_unit_mass_gpmol (float): The molar mass of the repeat unit in units of
-          grams per mole.
-
-    Note:
-        The experimental data arrays should be 1-dimensional and the same length, such
-        that ``specific_viscosity[i]`` corresponds to a measurement taken at monomer
-        concentration ``concentration_gpL[i]`` of a solution of chains with weight-
-        average molecular weight ``mol_weight_kgpmol[i]``.
+        repeat_unit (RepeatUnit): The projection length and molar mass of the polymer
+          repeat unit.
+        bg_model (torch.nn.Module): A pretrained model for evaluating the :math:`B_g`
+          parameter.
+        bth_model (torch.nn.Module): A pretrained model for evaluating the :math:`B_th`
+          parameter.
+        range_config (psst.RangeConfig): A set of ``psst.Range``s. Used to homogenize
+          inferencing of the models by normalizing the experimental data in the same
+          manner as the procedural data that the models were trained on.
+        device (torch.device, optional): Device on which to run the inferences.
+          Defaults to torch.device("cpu").
+        overwrite (bool, optional): Whether to allow the overwriting of existing output
+          files. Defaults to False.
 
     Returns:
         InferenceResult: The results of the model inferences, complete with estimates
@@ -333,32 +339,25 @@ def evaluate_dataset(
     """
 
     reduced_conc, degree_polym = reduce_data(
-        eval_config.concentration,
-        eval_config.molecular_weight,
-        eval_config.repeat_unit,
+        concentration_gpL,
+        mol_weight_kgpmol,
+        repeat_unit,
     )
-    visc = eval_config.specific_viscosity
     visc_normed_bg, visc_normed_bth = transform_data(
         reduced_conc,
         degree_polym,
-        visc,
+        specific_viscosity,
         range_config.phi_range,
         range_config.nw_range,
         range_config.visc_range,
     )
 
-    bg, bth = inference_models(
-        eval_config.bg_model,
-        eval_config.bth_model,
-        visc_normed_bg,
-        visc_normed_bth,
-        range_config.bg_range,
-        range_config.bth_range,
-    )
+    bg = inference_model(bg_model, visc_normed_bg, range_config.bg_range, device)
+    bth = inference_model(bth_model, visc_normed_bth, range_config.bth_range, device)
 
-    pe_combo = combo_case(bg, bth, reduced_conc, degree_polym, visc)
-    pe_bg_only = bg_only_case(bg, reduced_conc, degree_polym, visc)
-    pe_bth_only = bth_only_case(bth, reduced_conc, degree_polym, visc)
+    pe_combo = fit_pe_combo(bg, bth, reduced_conc, degree_polym, specific_viscosity)
+    pe_bg_only = fit_pe_bg_only(bg, reduced_conc, degree_polym, specific_viscosity)
+    pe_bth_only = fit_pe_bth_only(bth, reduced_conc, degree_polym, specific_viscosity)
 
     return InferenceResult(
         bg,
@@ -368,5 +367,86 @@ def evaluate_dataset(
         pe_bth_only,
         reduced_conc,
         degree_polym,
-        visc,
+        specific_viscosity,
     )
+
+
+def run(
+    eval_config: EvaluationConfig,
+    *,
+    range_config: psst.RangeConfig,
+    model_config: psst.ModelConfig,
+    device: str = "cpu",
+    overwrite: bool = False,
+    **kwargs,
+):
+    if len(kwargs):
+        warn(f"WARNING: Ignoring unsupported options to evaluate:\n\t{kwargs.keys()}")
+
+    dev = torch.device(device)
+
+    if not isinstance(eval_config, EvaluationConfig):
+        raise TypeError("eval_config must be of type EvaluationConfig")
+    if not isinstance(range_config, psst.RangeConfig):
+        raise TypeError("range_config must be of type RangeConfig")
+    if not isinstance(model_config, psst.ModelConfig):
+        raise TypeError("model_config must be of type ModelConfig")
+
+    results_file = Path(eval_config.results_file)
+    psst.configuration.validate_filepath(
+        results_file, exists=(None if overwrite else False)
+    )
+    reduced_datafile = Path(eval_config.reduced_datafile)
+    psst.configuration.validate_filepath(
+        reduced_datafile, exists=(None if overwrite else False)
+    )
+
+    conc, molw, visc = np.loadtxt(eval_config.datafile, unpack=True, delimiter=",")
+    rep_unit = RepeatUnit(eval_config.length, eval_config.mass)
+
+    if model_config.bg_name is None:
+        raise ValueError(
+            f"Value of model_config.bg.name in model_config must not be None for evaluation"
+        )
+    if model_config.bg_path is None:
+        raise ValueError(
+            f"Value of model_config.bg.path in model_config must not be None for evaluation"
+        )
+    if model_config.bth_name is None:
+        raise ValueError(
+            f"Value of model_config.bth.name in model_config must not be None for evaluation"
+        )
+    if model_config.bth_path is None:
+        raise ValueError(
+            f"Value of model_config.bth.path in model_config must not be None for evaluation"
+        )
+
+    bg_model_type: type[torch.nn.Module] | None = getattr(
+        models, model_config.bg_name, None
+    )
+    bth_model_type: type[torch.nn.Module] | None = getattr(
+        models, model_config.bth_name, None
+    )
+
+    if bg_model_type is None:
+        raise ValueError(f"Unrecognized name of model: {model_config.bg_name = }")
+    if bth_model_type is None:
+        raise ValueError(f"Unrecognized name of model: {model_config.bth_name = }")
+
+    bg_model = bg_model_type()
+    bth_model = bth_model_type()
+
+    bg_chkpt: psst.Checkpoint = torch.load(model_config.bg_path)
+    bth_chkpt: psst.Checkpoint = torch.load(model_config.bth_path)
+
+    bg_model.load_state_dict(bg_chkpt.model_state)
+    bth_model.load_state_dict(bth_chkpt.model_state)
+
+    result = evaluate_dataset(
+        conc, molw, visc, rep_unit, bg_model, bth_model, range_config, dev, overwrite
+    )
+
+    result.arrays_to_csv(reduced_datafile, overwrite)
+    result.write_to_file(results_file, overwrite)
+
+    return 0

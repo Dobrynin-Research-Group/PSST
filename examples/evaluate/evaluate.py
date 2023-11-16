@@ -36,7 +36,7 @@ def parse_args() -> tuple[ev.EvaluationConfig, psst.RangeConfig, torch.device]:
 def main():
     eval_config, range_config, device = parse_args()
 
-    result = psst.evaluate_dataset(range_config, eval_config, device)
+    result = ev.evaluate_dataset(range_config, eval_config, device)
 
     return result
 
