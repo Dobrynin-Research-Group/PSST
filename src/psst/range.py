@@ -45,10 +45,10 @@ class Range:
 
     min_value: float = attrs.field(converter=float)
     max_value: float = attrs.field(converter=float, validator=_check_max)
-    shape: Optional[int] = attrs.field(
-        default=None,
-        converter=conv.optional(int),
-        validator=valid.optional(valid.gt(0)),
+    shape: int = attrs.field(
+        default=0,
+        converter=int,
+        validator=valid.ge(0),
     )
     log_scale: bool = attrs.field(
         default=False, converter=bool, validator=_check_log_scale
