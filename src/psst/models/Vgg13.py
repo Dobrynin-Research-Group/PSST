@@ -3,7 +3,9 @@ from torch.nn import Conv2d, Flatten, Linear, MaxPool2d, Module, ReLU, Sequentia
 
 
 class Vgg13(Module):
-    """Visualization Geometry Group neural network for training on 2D images."""
+    """Very deep convolutional network for large-scale visual recognition of 2D images
+    with 13 weight layers (https://www.robots.ox.ac.uk/~vgg/research/very_deep/).
+    """
 
     __name__ = "Vgg13"
 
