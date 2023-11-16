@@ -1,0 +1,17 @@
+---
+training:
+  num_epochs: 2
+  num_samples_train: 70
+  num_samples_test: 30
+  checkpoint_frequency: 0
+  checkpoint_filename: chkpt.pt
+models: 
+  bg: Inception3
+ranges: ../../ranges/AridAgar.yaml
+adam: ./adam_config.yaml
+generator:
+  batch_size: 2
+  noise_factor: 0.05
+  num_nw_choices: 48
+  num_nw_to_select: 12
+  num_phi_to_select: 65

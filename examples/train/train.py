@@ -1,156 +1,142 @@
 from argparse import ArgumentParser
 from pathlib import Path
+from typing import Optional
 
+import attrs
 import torch
 
 import psst
+from psst.models import Inception3, Vgg13
 from psst import Parameter
+from psst.training import *
 
 
-def parse_args() -> (
-    tuple[type[torch.nn.Module], Parameter, Path, Path, Path, Path, torch.device]
-):
+@attrs.define
+class CmdLineArgs:
+    model: torch.nn.Module
+    parameter: Parameter
+    train_config: TrainingConfig
+    range_config: psst.RangeConfig
+    gen_config: psst.GeneratorConfig
+    adam_config: psst.AdamConfig
+    device: torch.device
+    from_checkpoint: Optional[Path] = None
+
+
+def parse_args() -> CmdLineArgs:
     parser = ArgumentParser()
     parser.add_argument(
-        "checkpoint_file",
-        help="Selects file location to store trained model and optimizer states",
-    )
-    parser.add_argument(
-        "-c",
-        required=True,
-        metavar="training_config_file",
-        help="Selects the configuration file for the training",
-    )
-    parser.add_argument(
-        "-g",
-        required=True,
-        metavar="generator_config_file",
-        help="Selects the configuration file for the SampleGenerator",
-    )
-    parser.add_argument(
-        "-a",
-        metavar="adam_config_file",
-        help="Selects the configuration file for the Adam optimizer"
-        " (if not set, a default set of values will be used)",
+        "config_file",
+        help="main configuration file",
     )
     parser.add_argument(
         "-p",
         required=True,
         choices=["bg", "bth"],
-        help="Selects optimization for either the Bg parameter"
-        " (good solvent parameter) or the Bth parameter (thermal blob parameter)",
+        help="blob parameter to train the model for; can either be 'bg'"
+        " (good solvent parameter) or 'bth' (thermal blob parameter)",
+    )
+    parser.add_argument(
+        "-r",
+        metavar="range_config_file",
+        help="separate configuration file for RangeConfig",
+    )
+    parser.add_argument(
+        "-g",
+        metavar="generator_config_file",
+        help="separate configuration file for GeneratorConfig",
+    )
+    parser.add_argument(
+        "-a",
+        metavar="adam_config_file",
+        help="separate configuration file for AdamConfig",
     )
     parser.add_argument(
         "-m",
         choices=["Inception3", "Vgg13"],
-        default="Inception3",
         metavar="model_name",
-        help="Selects the neural network model to optimize training for"
-        " (default: Inception3)",
+        help="neural network model to train (can be specified here or in"
+        " config_file)",
     )
     parser.add_argument(
         "-d",
-        action="store_true",
-        help="Enables CUDA device offloading (default: use the CPU)",
+        metavar="device_name",
+        default="cpu",
+        help="name of the device on which to run training (default is 'cpu')",
     )
     parser.add_argument(
         "-l",
         metavar="checkpoint_file",
-        help="Load training state from checkpoint file",
-    )
-    parser.add_argument(
-        "-w", action="store_true", help="Allows the checkpoint_file to be overwritten"
+        help="checkpoint file from which to load training state",
     )
 
     args = parser.parse_args()
 
-    checkpoint_file = Path(args.checkpoint_file)
-    overwrite = args.w
-    if checkpoint_file.is_file() and not overwrite:
-        raise FileExistsError(
-            "Checkpoint file exists. Pass the -w flag to allow overwriting it."
-        )
-
     if args.m == "Inception3":
-        from psst.models import Inception3 as Model
+        model = Inception3()
     else:
-        from psst.models import Vgg13 as Model
+        model = Vgg13()
 
     parameter = Parameter.bg if args.p == "bg" else Parameter.bth
-    run_config_file = Path(args.c)
-    adam_config_file = Path(args.a)
-    gen_config_file = Path(args.g)
+
+    train_config = TrainingConfig.from_file(args.config_file)
+    range_config = psst.RangeConfig.from_file(args.r)
+    if args.a:
+        adam_config = psst.AdamConfig.from_file(args.a)
+    else:
+        adam_config = psst.AdamConfig()
+
+    from_checkpoint = args.l
+    if from_checkpoint:
+        from_checkpoint = Path(from_checkpoint)
+        assert from_checkpoint.is_file()
 
     if args.d:
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
 
-    return (
-        Model,
+    return CmdLineArgs(
+        model,
         parameter,
-        checkpoint_file,
-        run_config_file,
-        adam_config_file,
-        gen_config_file,
+        train_config,
+        range_config,
+        generator_config,
+        adam_config,
         device,
+        from_checkpoint,
     )
 
 
 def main():
-    (
-        Model,
-        parameter,
-        checkpoint_file,
-        run_config_file,
-        adam_config_file,
-        gen_config_file,
-        device,
-    ) = parse_args()
+    args = parse_args()
 
-    if adam_config_file:
-        adam_config = psst.AdamConfig.from_file(adam_config_file)
-    else:
-        adam_config = psst.AdamConfig()
+    generator = psst.SampleGenerator(
+        args.parameter,
+        args.range_config,
+        args.gen_config,
+        device=args.device,
+    )
 
-    run_config = psst.RunConfig.from_file(run_config_file)
-    generator_config = psst.GeneratorConfig.from_file(gen_config_file)
-    generator = psst.SampleGenerator(parameter, generator_config, device=device)
-
-    model = Model().to(device=device)
+    model = args.model
+    model.to(device=args.device)
     loss_fn = torch.nn.MSELoss()
 
-    optimizer = torch.optim.Adam(model.parameters(), **adam_config)
+    optimizer = torch.optim.Adam(model.parameters(), **args.adam_config)
     start_epoch = 0
-    if checkpoint_file:
-        chkpt: psst.Checkpoint = torch.load(checkpoint_file)
+    if args.from_checkpoint:
+        chkpt: psst.Checkpoint = torch.load(args.from_checkpoint)
         start_epoch = chkpt.epoch
         model.load_state_dict(chkpt.model_state)
         optimizer.load_state_dict(chkpt.optimizer_state)
 
-    loss_fn = torch.nn.MSELoss()
-    generator = psst.SampleGenerator(Parameter.bg, generator_config, device=device)
-
-    psst.train_model(
+    train_model(
         model=model,
         optimizer=optimizer,
         loss_fn=loss_fn,
         generator=generator,
+        train_config=args.train_config,
         start_epoch=start_epoch,
-        num_epochs=run_config.num_epochs,
-        num_samples_train=run_config.num_samples_train,
-        num_samples_test=run_config.num_samples_test,
-        checkpoint_file=checkpoint_file,
-        checkpoint_frequency=run_config.checkpoint_frequency,
-    )
-
-    torch.save(
-        psst.Checkpoint(
-            run_config.num_epochs,
-            model.state_dict(),
-            optimizer.state_dict(),
-        ),
-        checkpoint_file,
     )
 
 
