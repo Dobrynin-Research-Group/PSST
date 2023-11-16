@@ -1,23 +1,24 @@
 from __future__ import annotations
-from argparse import ArgumentParser
 from functools import partial
-from pathlib import Path
 from typing import Any
+from warnings import warn
 
 import optuna
 import torch
 
 import psst
-from psst import Parameter
+from psst import Parameter, models
 from .config import OptimConfig
 
 
+# Maybe update training.train.train with this, call that from here?
 def train(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     loss_fn: torch.nn.Module,
     generator: psst.SampleGenerator,
     num_samples: int,
+    b_range: psst.Range,
 ) -> tuple[float, float]:
     batch_size = generator.batch_size
     num_batches = num_samples // batch_size
@@ -37,7 +38,7 @@ def train(
         true_value = params[idx]
 
         optimizer.zero_grad()
-        pred: psst.NormedTensor = model(samples)
+        pred: torch.Tensor = model(samples)
 
         loss: torch.Tensor = loss_fn(pred, true_value)
         loss.backward()
@@ -45,8 +46,8 @@ def train(
 
         avg_loss += loss.item()
 
-        true_value.unnormalize()
-        pred.unnormalize()
+        b_range.unnormalize(true_value)
+        b_range.unnormalize(pred)
 
         avg_error += (torch.abs(true_value - pred) / true_value).mean().item()
 
@@ -60,6 +61,7 @@ def objective(
     model: torch.nn.Module,
     loss_fn: torch.nn.Module,
     optim_config: OptimConfig,
+    b_range: psst.Range,
 ) -> float:
     lr = trial.suggest_float("lr", 1e-6, 1e-3, log=True)
     beta_1 = trial.suggest_float("beta_1", 0.5, 0.9, log=False)
@@ -73,7 +75,12 @@ def objective(
     avg_error: float = 0.0
     for epoch in range(20):
         _, avg_error = train(
-            model, optimizer, loss_fn, generator, optim_config.num_samples_per_epoch
+            model,
+            optimizer,
+            loss_fn,
+            generator,
+            optim_config.num_samples_train,
+            b_range,
         )
 
         trial.report(avg_error, epoch)
@@ -83,13 +90,17 @@ def objective(
     return avg_error
 
 
-def run(
-    optim_config: OptimConfig,
-    generator: psst.SampleGenerator,
+def optimize(
+    config: OptimConfig,
+    *,
+    parameter: Parameter,
+    range_config: psst.RangeConfig,
+    generator_config: psst.GeneratorConfig,
     model: torch.nn.Module,
-    loss_fn: torch.nn.Module,
+    loss_fn: torch.nn.Module | None = None,
+    device: str = "cpu",
 ) -> dict[str, Any]:
-    if generator.parameter is Parameter.bg:
+    if parameter is Parameter.bg:
         study_name = "Bg_Hyperparam_Tune"
     else:
         study_name = "Bth_Hyperparam_Tune"
@@ -102,14 +113,29 @@ def run(
         ),
     )
 
+    if loss_fn is None:
+        loss_fn = torch.nn.MSELoss()
+    generator = psst.SampleGenerator(
+        parameter,
+        range_config,
+        generator_config,
+        device=torch.device(device),
+    )
+
+    if parameter is Parameter.bg:
+        b_range = range_config.bg_range
+    else:
+        b_range = range_config.bth_range
+
     func = partial(
         objective,
         generator=generator,
         model=model,
         loss_fn=loss_fn,
-        optim_config=optim_config,
+        optim_config=config,
+        b_range=b_range,
     )
-    study.optimize(func, n_trials=optim_config.num_trials)
+    study.optimize(func, n_trials=config.num_trials)
 
     states = [t.state for t in study.trials]
     num_pruned = states.count(optuna.trial.TrialState.PRUNED)
@@ -132,84 +158,48 @@ def run(
     return trial.params
 
 
-def main():
-    parser = ArgumentParser()
-    parser.add_argument(
-        "output_file",
-        help="Selects file location to store optimized results in (YAML file)",
-    )
-    parser.add_argument(
-        "-c",
-        required=True,
-        metavar="optimizer_config_file",
-        help="Selects the configuration file for the optimizer",
-    )
-    parser.add_argument(
-        "-g",
-        required=True,
-        metavar="generator_config_file",
-        help="Selects the configuration file for the SampleGenerator",
-    )
-    parser.add_argument(
-        "-p",
-        required=True,
-        choices=["bg", "bth"],
-        help="Selects optimization for either the Bg parameter"
-        " (good solvent parameter) or the Bth parameter (thermal blob parameter)",
-    )
-    parser.add_argument(
-        "-m",
-        choices=["Inception3", "Vgg13"],
-        default="Inception3",
-        metavar="model_name",
-        help="Selects the neural network model to optimize training for"
-        " (default: Inception3)",
-    )
-    parser.add_argument(
-        "-d",
-        action="store_true",
-        help="Enables CUDA device offloading (default: use the CPU)",
-    )
-    parser.add_argument(
-        "-w", action="store_true", help="Allows the output_file to be overwritten"
+def run(
+    opt_config: OptimConfig,
+    model_config: psst.ModelConfig,
+    range_config: psst.RangeConfig,
+    generator_config: psst.GeneratorConfig,
+    device: str = "cpu",
+    overwrite: bool = False,
+    load_file: str = "",
+    **kwargs,
+):
+    if len(kwargs):
+        warn(f"WARNING: Ignoring unsupported options to evaluate:\n\t{kwargs.keys()}")
+
+    outpath = psst.configuration.validate_filepath(
+        opt_config.output_file, exists=(None if overwrite else False)
     )
 
-    args = parser.parse_args()
-
-    outfile = Path(args.output_file)
-    overwrite = args.w
-    if outfile.is_file() and not overwrite:
-        raise FileExistsError(
-            "Output file exists. Pass the -w flag to allow overwriting it."
+    if model_config.bg_name is not None and model_config.bth_name is not None:
+        raise ValueError(
+            "Cannot optimize both Bg and Bth models simultaneously."
+            " Please only specify one of 'bg' or 'bth'."
+        )
+    if model_config.bg_name is not None:
+        model = getattr(models, model_config.bg_name)
+        parameter = Parameter.bg
+    elif model_config.bth_name is not None:
+        model = getattr(models, model_config.bth_name)
+        parameter = Parameter.bth
+    else:
+        raise ValueError(
+            "One of either bg or bth must be specified. Please specify one."
         )
 
-    if args.m == "Inception3":
-        from psst.models import Inception3 as Model
-    else:
-        from psst.models import Vgg13 as Model
-
-    parameter = Parameter.bg if args.p == "bg" else Parameter.bth
-    optim_config_file = Path(args.c)
-    gen_config_file = Path(args.g)
-
-    if args.d:
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-
-    optim_config = OptimConfig.from_file(optim_config_file)
-    generator_config = psst.GeneratorConfig.from_file(gen_config_file)
-    generator = psst.SampleGenerator(parameter, generator_config, device=device)
-
-    model = Model().to(device=device)
-    loss_fn = torch.nn.MSELoss()
-
-    params = run(optim_config, generator, model, loss_fn)
-    adam_config = psst.AdamConfig(
-        lr=params["lr"], eps=params["eps"], betas=(params["beta_1"], params["beta_2"])
+    params = optimize(
+        opt_config,
+        parameter=parameter,
+        range_config=range_config,
+        generator_config=generator_config,
+        model=model,
+        device=device,
     )
-    adam_config.to_yaml(outfile, overwrite=overwrite)
 
+    psst.configuration.write_dict_to_file(params, outpath, overwrite)
 
-if __name__ == "__main__":
-    main()
+    return 0
