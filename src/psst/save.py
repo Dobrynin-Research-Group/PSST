@@ -1,12 +1,6 @@
-from enum import Enum
 from typing import NamedTuple
 
-__all__ = ["ModelName", "Checkpoint"]
-
-
-class ModelName(str, Enum):
-    Inception3 = "Inception3"
-    Vgg13 = "Vgg13"
+__all__ = ["Checkpoint"]
 
 
 class Checkpoint(NamedTuple):
@@ -27,6 +21,5 @@ class Checkpoint(NamedTuple):
     """
 
     epoch: int
-    model_name: ModelName
     model_state: dict
     optimizer_state: dict
