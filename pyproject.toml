@@ -5,15 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "psst"
 version = "0.1.0"
-requires-python = ">=3.8"
+requires-python = ">=3.8,<3.11"
 dependencies = [
     "attrs",
     "numpy",
-    "optuna",
     "ruamel.yaml",
-    "scipy",
     "torch",
 ]
+
+[project.optional-dependencies]
+all = ["matplotlib", "numpy", "optuna", "scipy"]
+dev = ["black", "sphinx", "pytest", "matplotlib", "numpy", "optuna", "scipy"]
+docs = ["sphinx"]
+evaluate = ["numpy", "scipy"]
+optimize = ["optuna"]
+plot = ["matplotlib"]
+test = ["pytest"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"
