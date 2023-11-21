@@ -52,7 +52,7 @@ class Vgg13(Module):
 
     def _transform_input(self, x: Tensor) -> Tensor:
         if x.ndim == 3:
-            x = x.view(x.shape[0], 1, *x.shape[1:])
+            x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
         return x
 
     def forward(self, x: Tensor) -> Tensor:
